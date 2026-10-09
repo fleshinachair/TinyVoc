@@ -47,7 +47,7 @@ TinyVoc is an **audio FX**: it processes the audio in the Schwung slot it sits i
 
 ### Built-in mic
 
-- **Distance.** Start 2–4 inches from the mic. Closer gets you more voice and less room.
+- **Distance.** Start 4-24 inches from the mic. Closer gets you more voice and less room.
 - **Enunciate.** Over-pronounce consonants: "s", "t" and "k" are what make a vocoder understandable, and the mic's small capsule needs the help.
 - **Pad taps.** TinyVoc high-passes its input at **120 Hz**, so the thump of hitting a pad, and chassis vibration, doesn't open the gate or muddy the vocoder (a 40 Hz thump drops about 10 dB). It's a gentle filter: a hard pad hit still leaks a little.
 - **Level.** In **Auto** the scope shows how much boost TinyVoc is adding (`+NN`, up to +12 dB). If it sits at `+12`, the mic is too quiet to be lifted fully — raise Line In's **Input Trim** until it falls below.

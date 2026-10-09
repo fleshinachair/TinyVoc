@@ -44,21 +44,6 @@ This is the first public build. It works on a real Move and is covered by about 
 - Freeze banner across SPACE knobs 7–8; Latch indicator on MORE knob 7.
 - Gate and Auto unified (see above).
 
-### Bug fixes
-- Robot played a static high tone from Move's pads — fixed by the octave fold.
-- Robot played the carrier from room noise through an open gate — gate and silence logic reworked.
-- Robot phrases started 5–8 dB too loud after a pause — leveller and gain follower now hold through pauses.
-- Clicks on pitch jumps and on mode changes — fixed.
-- Octave errors in the tracker — fixed.
-- Freeze re-triggering a punch-in when it filled by itself — fixed.
-
-## Changes you may notice
-- **Talkbox is gone.** Sets that were saved in Talkbox open in Snap (other settings are kept). Tape moved from mode 7 to 6.
-- **Auto is no longer a separate switch.** It is the bottom of the Gate knob. Old sets still load: *Auto On* becomes Gate *Auto*, and a saved dB gate is rounded to the nearest 3 dB step.
-- **Demo moved to SPACE knob 6** (where Auto used to be).
-- **Key "Follow" was removed.** It silently meant C; a set saved with it loads as C. Move doesn't pass its project key to modules, so set Key and Scale on the Tune page.
-- Renamed from VocalTron. The installer removes the old `vocaltron` folder; a set that used VocalTron has to have TinyVoc added again.
-
 ## Known limitations
 - Tuned on synthetic voices and measured on a built-in mic; real-voice tuning of every mode (Robot makeup and sibilance, tracker clarity, drive amounts) is still to do.
 - The on-screen look of the newest widgets (the Latch and Gate cells, per-mode knob names) has been tested against a mock display, not yet by eye on the Move.
