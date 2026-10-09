@@ -1,0 +1,7 @@
+build/
+*.so
+*.o
+*.tar.gz
+
+# Schwung headers are fetched by scripts/fetch_host_headers.sh (build.sh does it on demand)
+src/host/
