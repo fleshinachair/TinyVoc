@@ -60,6 +60,44 @@ static float svf_bp(float *s, float x, float f, float q, float sr)
     return k * v1;
 }
 
+static void svf_design(fx_svf_t *f, float hz, float q, float sr)
+{
+    float g = tanf(PI_F * clampf(hz, 20.0f, 0.45f * sr) / sr);
+    f->k = 1.0f / q;
+    f->a1 = 1.0f / (1.0f + g * (g + f->k));
+    f->a2 = g * f->a1;
+    f->a3 = g * f->a2;
+    f->s1 = f->s2 = 0.0f;
+}
+
+/* One sample; returns the low-pass, *bp the band-pass (high-pass = x - k bp - lp). */
+static inline float svf_tick(fx_svf_t *f, float x, float *bp)
+{
+    float v3 = x - f->s2;
+    float v1 = f->a1 * f->s1 + f->a2 * v3;
+    float v2 = f->s2 + f->a2 * f->s1 + f->a3 * v3;
+    f->s1 = flush(2.0f * v1 - f->s1);
+    f->s2 = flush(2.0f * v2 - f->s2);
+    *bp = v1;
+    return v2;
+}
+
+/* Snap's telephone curve: 4th-order Butterworth high-pass and low-pass (two
+ * sections each, Q 0.541 / 1.307), then a bell at 2.5 kHz, then makeup for
+ * the chest and air it takes away. */
+float fx_snap_voicing(fx_t *fx, float x)
+{
+    float bp, lp;
+    for (int s = 0; s < 2; s++) {
+        lp = svf_tick(&fx->tel[s], x, &bp);
+        x = x - fx->tel[s].k * bp - lp;
+    }
+    for (int s = 2; s < 4; s++) x = svf_tick(&fx->tel[s], x, &bp);
+    (void)svf_tick(&fx->tel[4], x, &bp);
+    x += fx->tel_bite * fx->tel[4].k * bp;           /* k bp: unity at the centre */
+    return x * fx->tel_makeup;
+}
+
 void fx_init(fx_t *fx, float sr)
 {
     memset(fx, 0, sizeof(*fx));
@@ -78,6 +116,13 @@ void fx_init(fx_t *fx, float sr)
     fx->hp_a = vt_unvoiced_hp_coef(sr);
     fx->a12 = expf(-2.0f * PI_F * 12000.0f / sr);
     fx->k_env10 = 1.0f - expf(-1.0f / (0.01f * sr));
+    svf_design(&fx->tel[0], SNAP_HPF_HZ, 0.5412f, sr);
+    svf_design(&fx->tel[1], SNAP_HPF_HZ, 1.3066f, sr);
+    svf_design(&fx->tel[2], SNAP_LPF_HZ, 0.5412f, sr);
+    svf_design(&fx->tel[3], SNAP_LPF_HZ, 1.3066f, sr);
+    svf_design(&fx->tel[4], SNAP_BITE_HZ, 1.2f, sr);
+    fx->tel_bite = powf(10.0f, SNAP_BITE_DB / 20.0f) - 1.0f;
+    fx->tel_makeup = SNAP_MAKEUP;
 }
 
 void fx_set(fx_t *fx, const cher_t *c, int mode, float char1, float char2, float mod,
@@ -104,7 +149,10 @@ void fx_set(fx_t *fx, const cher_t *c, int mode, float char1, float char2, float
 
     /* Snap's grain tightness (char1 above 0.5); every other mode plays plain PSOLA. */
     psola_set_tight(&fx->pv[0], mode == VT_MODE_SNAP ? clampf(2.0f * char1 - 1.0f, 0.0f, 1.0f) : 0.0f);
-    if (mode != VT_MODE_SNAP) fx->snap_note = -1;
+    if (mode != VT_MODE_SNAP) {
+        fx->snap_note = -1;
+        for (int s = 0; s < 5; s++) fx->tel[s].s1 = fx->tel[s].s2 = 0.0f;   /* no stale ring on return */
+    }
 
     if (mode != VT_MODE_PRISM) return;
 
@@ -186,7 +234,11 @@ void fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r)
          *  - the formant is not fully decoupled: it follows a quarter of the
          *    correction (char1 0.5), rising to all of it at char1 1, where the
          *    grains also tighten toward one period: bright, buzzy, metallic.
-         *  - char1 still offsets the formant -12..+12 st (0.5 = none). */
+         *  - char1 still offsets the formant -12..+12 st, on top of a fixed
+         *    +2.5 st lift (char1 0.5 = +2.5 st): processed, not natural.
+         *  - the result goes through a telephone band with a 2.5 kHz bite
+         *    (fx_snap_voicing): no chest, no air.
+         *  - Beauty 0 makes the retune instant, Retune and Glide aside (dsp.c). */
         float lr = cher_lead_lr(c);
         const float rt = c->retune_ms;
         const float hard = rt <= 0.0f ? 1.0f : clampf(1.0f - rt * (1.0f / 50.0f), 0.0f, 1.0f);
@@ -198,7 +250,7 @@ void fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r)
             fx->snap_note = -1;                                                       /* an onset is not a jump */
         }
         const float couple = 0.25f + 0.75f * clampf(2.0f * fx->char1 - 1.0f, 0.0f, 1.0f);
-        float fr = exp2f(2.0f * fx->char1 - 1.0f + couple * lr);                      /* -12..+12 st + skew */
+        float fr = exp2f(2.0f * fx->char1 - 1.0f + SNAP_FORMANT_LIFT * (1.0f / 12.0f) + couple * lr);   /* + skew */
         if (c->voiced && fx->mod > 0.0f)
             lr += fx->mod * (0.5f / 12.0f) * sinf(2.0f * PI_F * 5.5f * t);            /* vibrato */
         float y = psola_process(&fx->pv[0], c, T0, exp2f(lr), fr, 0.0f);
@@ -218,6 +270,7 @@ void fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r)
             fx->sh_x = y;
             fx->sh_y = flush(hp);
             y += (exp2f(b * 2.0f / 6.0206f) - 1.0f) * hp;
+            y = fx_snap_voicing(fx, y);
             /* micro-double: the snapped voice again, 11 / 16 ms late, drifting */
             fx->haas[0][fx->haas_w] = y;
             fx->haas_w = (fx->haas_w + 1) & (FX_HAAS_LEN - 1);
@@ -226,7 +279,7 @@ void fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r)
             l = y + g * haas_read(fx->haas[0], fx->haas_w, 0.011f * sr + wob);
             r = y + g * haas_read(fx->haas[0], fx->haas_w, 0.016f * sr - wob);
         } else {
-            l = r = y;
+            l = r = fx_snap_voicing(fx, y);
         }
         break;
     }

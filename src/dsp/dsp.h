@@ -70,10 +70,23 @@ typedef enum {
     VT_MODE_SNAP = 0, VT_MODE_ROBOT, VT_MODE_CHORDS, VT_MODE_MORPH,
     VT_MODE_PRISM, VT_MODE_DOUBLE, VT_MODE_TAPE, VT_MODE_COUNT   /* Talkbox removed 2026-10-09 */
 } vt_mode;
-/* Beauty polishes Snap, Robot, Chords and Prism; Morph, Double and Tape never read it. */
-static inline int vt_beauty_acts(int mode)
+/* Does this knob do anything in this mode? Where not, the screen shows "N/A"
+ * (canvas.js carries the same table) and the DSP ignores turns of it.
+ *   Key     everywhere but Tape (a fixed drop: no quantizer); Robot's drone uses it
+ *   Scale   not Robot (the drone is root + fifth + octave in any scale), not Tape
+ *   Retune  Snap, Chords, Morph, Double (Prism is a fixed 0 ms snap; Robot and Tape have no lead)
+ *   Glide   everywhere but Tape (no pad targets)
+ *   Beauty  Snap, Robot, Chords, Prism (Morph, Double and Tape never read it) */
+static inline int vt_param_acts(int id, int mode)
 {
-    return mode == VT_MODE_SNAP || mode == VT_MODE_ROBOT || mode == VT_MODE_CHORDS || mode == VT_MODE_PRISM;
+    switch (id) {
+    case VT_P_KEY:    return mode != VT_MODE_TAPE;
+    case VT_P_SCALE:  return mode != VT_MODE_ROBOT && mode != VT_MODE_TAPE;
+    case VT_P_RETUNE: return mode == VT_MODE_SNAP || mode == VT_MODE_CHORDS || mode == VT_MODE_MORPH || mode == VT_MODE_DOUBLE;
+    case VT_P_GLIDE:  return mode != VT_MODE_TAPE;
+    case VT_P_BEAUTY: return mode == VT_MODE_SNAP || mode == VT_MODE_ROBOT || mode == VT_MODE_CHORDS || mode == VT_MODE_PRISM;
+    default:          return 1;
+    }
 }
 typedef enum { VT_SCALE_CHROMATIC = 0, VT_SCALE_MAJOR, VT_SCALE_MINOR, VT_SCALE_PENTATONIC, VT_SCALE_DORIAN } vt_scale;
 typedef enum { VT_PTYPE_FLOAT = 0, VT_PTYPE_ENUM } vt_ptype;
@@ -116,8 +129,21 @@ void dsp_process_block_f(vt_t *vt, float *lr_inout, int frames);
 int dsp_set_param(vt_t *vt, const char *key, const char *val);
 int dsp_get_param(vt_t *vt, const char *key, char *buf, int buf_len);
 
-/* Raw 3-byte-or-less MIDI (status, d1, d2). Drives the carrier synth. */
+/* Raw 3-byte-or-less MIDI (status, d1, d2). Drives the carrier synth.
+ * Channel messages on any channel but the one set by dsp_set_midi_channel
+ * are ignored (counted for "diag"). */
 void dsp_handle_midi(vt_t *vt, const uint8_t *msg, int len);
+/* The slot's receive channel, 0-15 (host->slot_recv_channel); -1 = omni (the
+ * slot receives All, or there is no slot context). Omni until set. */
+void dsp_set_midi_channel(vt_t *vt, int channel);
+/* The host's MIDI source for the next dsp_handle_midi call only (kept with
+ * the last note-ons for "diag"). VT_MIDI_SOURCE_BROADCAST (the host's
+ * MOVE_MIDI_SOURCE_FX_BROADCAST) is every track's MIDI sent to every audio
+ * FX: its channel messages are ignored. The slot's own MIDI comes on its own
+ * path (seen on the device: every own-channel note arrives as source 2 and
+ * again as a broadcast; other tracks' notes only as broadcasts). */
+#define VT_MIDI_SOURCE_BROADCAST 4
+void dsp_set_midi_source(vt_t *vt, int source);
 
 /* Host tempo (BPM) for Demo's 4-bar mode changes; 120 until set. */
 void dsp_set_bpm(vt_t *vt, float bpm);

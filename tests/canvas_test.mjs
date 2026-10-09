@@ -256,43 +256,57 @@ try { drawLt(ltCtx(32), undefined); runLt({}); runLt({ mode: null, latch: "maybe
 catch (e) { threw = true; console.log("  threw:", e); }
 check(!threw, "latch: junk input never throws (no setPixel on the frame either)");
 
-// ---- Beauty (MORE knob 8): a percentage where it acts, a dimmed "N/A" elsewhere ----
-check(ov.widgetKinds["custom:tinyvoc_beauty"] && typeof ov.widgetKinds["custom:tinyvoc_beauty"].draw === "function",
-      "registers custom:tinyvoc_beauty");
-const drawBt = ov.widgetKinds["custom:tinyvoc_beauty"].draw;
-const runBt = (values, Wl = 32) => { const k = ltCtx(Wl); drawBt(k, { values, nowMs: 0, group: { keys: ["beauty"] } }); return k; };
-const BEAUTY_ACTS = ["Snap", "Robot", "Chords", "Prism"];
-let btOk = true;
-for (const Wl of [24, 32, 40])
-    for (let mi = 0; mi < MODES.length; mi++)
-        for (const [bv, pct] of [["0", "0%"], ["0.45", "45%"], [0.5, "50%"], ["1", "100%"]])
-            for (const modeVal of [MODES[mi], mi, String(mi)]) {
-                const k = runBt({ mode: modeVal, beauty: bv }, Wl);
-                const acts = BEAUTY_ACTS.includes(MODES[mi]);
-                const want = acts ? pct : "N/A";
-                const one = k.runs.length === 1 && k.runs[0].t === want;
-                const dim = acts ? k.cleared === 0 : k.cleared > 0;           // "N/A" is dimmed, a value is not
-                const centred = k.runs[0] && Math.abs((k.runs[0].x + k.runs[0].w / 2) - Wl / 2) <= 3;
-                const below = k.runs.every((r) => r.y + 8 <= 15 - 2);
-                if (!(one && dim && centred && below && k.outOfBounds === 0)) {
-                    btOk = false;
-                    console.log("  beauty widget", Wl, MODES[mi], JSON.stringify(modeVal), bv, JSON.stringify(k.runs), k.cleared, k.outOfBounds);
+// ---- Knobs that do nothing in some modes: Key, Scale, Retune, Glide, Beauty ----
+// Where a knob acts it shows its value; where it doesn't, a dimmed "N/A". The expected
+// table below is the same one test_main.c checks against vt_param_acts in dsp.h.
+const EXPECT = {
+    key:    { acts: ["Snap", "Robot", "Chords", "Morph", "Prism", "Double"],
+              vals: [["C", "C"], ["F#", "F#"], [2, "D"], ["11", "B"]] },
+    scale:  { acts: ["Snap", "Chords", "Morph", "Prism", "Double"],
+              vals: [["Chromatic", "Chr"], ["Major", "Maj"], [2, "Min"], ["Pentatonic", "Pen"], [4, "Dor"]] },
+    retune: { acts: ["Snap", "Chords", "Morph", "Double"], vals: [["0", "0"], ["120", "120"], [500, "500"]] },
+    glide:  { acts: ["Snap", "Robot", "Chords", "Morph", "Prism", "Double"], vals: [["0", "0"], ["37.4", "37"], ["500", "500"]] },
+    beauty: { acts: ["Snap", "Robot", "Chords", "Prism"], vals: [["0", "0%"], ["0.45", "45%"], [0.5, "50%"], ["1", "100%"]] },
+};
+let gtOk = true;
+for (const [key, ex] of Object.entries(EXPECT)) {
+    const kind = "custom:tinyvoc_" + key;
+    check(ov.widgetKinds[kind] && typeof ov.widgetKinds[kind].draw === "function", "registers " + kind);
+    const drawG = ov.widgetKinds[kind].draw;
+    const runG = (values, Wl = 32) => { const k = ltCtx(Wl); drawG(k, { values, nowMs: 0, group: { keys: [key] } }); return k; };
+    for (const Wl of [24, 32, 40])
+        for (let mi = 0; mi < MODES.length; mi++)
+            for (const [raw, want] of ex.vals)
+                for (const modeVal of [MODES[mi], mi, String(mi)]) {
+                    const k = runG({ mode: modeVal, [key]: raw }, Wl);
+                    const acts = ex.acts.includes(MODES[mi]);
+                    const r = k.runs[0];
+                    const one = k.runs.length === 1 && r && (acts ? (r.t.startsWith(want) || want.startsWith(r.t)) && r.t.length > 0 : r.t === "N/A");
+                    const fits = r && r.w <= Wl - 2;                                    // in the cell with a pixel to spare
+                    const dim = acts ? k.cleared === 0 : k.cleared > 0;                 // "N/A" is dimmed, a value is not
+                    const centred = r && Math.abs((r.x + r.w / 2) - Wl / 2) <= 3;
+                    const below = k.runs.every((q) => q.y + 8 <= 15 - 2);
+                    if (!(one && fits && dim && centred && below && k.outOfBounds === 0)) {
+                        gtOk = false;
+                        console.log("  " + key + " widget", Wl, MODES[mi], JSON.stringify(modeVal), raw, JSON.stringify(k.runs), k.cleared, k.outOfBounds);
+                    }
                 }
-            }
-check(btOk, "beauty: every mode x value x width shows a percentage (acts) or a dimmed N/A (Morph, Double, Tape), centred, in the frame");
-check(["Morph", "Double", "Tape"].every((m) => runBt({ mode: m, beauty: "0.8" }).runs[0].t === "N/A") &&
-      ["Snap", "Robot", "Chords", "Prism"].every((m) => runBt({ mode: m, beauty: "0.8" }).runs[0].t === "80%"),
-      "beauty: N/A in exactly Morph, Double and Tape");
-const btCentre = (k) => [k.runs[0].x + k.runs[0].w / 2, k.runs[0].y];       // text is centred, so compare the centre and the row
-const btNear = (a, b) => Math.abs(btCentre(a)[0] - btCentre(b)[0]) <= 1 && btCentre(a)[1] === btCentre(b)[1];
-check(btNear(runBt({ mode: "Robot", beauty: "0.5" }), runBt({ mode: "Tape", beauty: "0.5" })) &&
-      btNear(runBt({ mode: "Snap", beauty: "1" }), runBt({ mode: "Morph", beauty: "0" })), "beauty: same cell centre and row in every mode (nothing shifts)");
-check(runBt({ beauty: "0.3" }).runs[0].t === "30%" && runBt({ mode: "junk", beauty: "0.3" }).runs[0].t === "30%",
-      "beauty: mode not read yet shows the value");
-threw = false;
-try { drawBt(ltCtx(32), undefined); runBt({}); runBt({ mode: null, beauty: "x" }); runBt({ mode: "Tape", beauty: 7 }); drawBt({ width: 32, height: 15, print() {}, fillRect() {} }, { values: { mode: "Tape" } }); }
-catch (e) { threw = true; console.log("  threw:", e); }
-check(!threw, "beauty: junk input never throws (no setPixel on the frame either)");
+    // the same cell centre and row in every mode: nothing shifts
+    const ctr = (k) => [k.runs[0].x + k.runs[0].w / 2, k.runs[0].y];
+    const near = (a2, b2) => Math.abs(ctr(a2)[0] - ctr(b2)[0]) <= 3 && ctr(a2)[1] === ctr(b2)[1];
+    const v0 = ex.vals[0][0], v1 = ex.vals[ex.vals.length - 1][0];
+    check(MODES.every((m) => near(runG({ mode: m, [key]: v0 }), runG({ mode: MODES[0], [key]: v1 }))), key + ": same cell centre and row in every mode (nothing shifts)");
+    check(runG({ [key]: v0 }).runs[0].t.startsWith(ex.vals[0][1]) && runG({ mode: "junk", [key]: v0 }).runs[0].t.startsWith(ex.vals[0][1]),
+          key + ": mode not read yet shows the value");
+    threw = false;
+    try { drawG(ltCtx(32), undefined); runG({}); runG({ mode: null, [key]: "x" }); runG({ mode: "Tape", [key]: 7 }); runG({ mode: "Snap", [key]: null });
+          drawG({ width: 32, height: 15, print() {}, fillRect() {} }, { values: { mode: "Tape" } }); }
+    catch (e) { threw = true; console.log("  threw:", e); }
+    check(!threw, key + ": junk input never throws (no setPixel on the frame either)");
+}
+check(gtOk, "gated knobs: every mode x value x width shows the value (acts) or a dimmed N/A, centred, fitted, in the frame");
+check(Object.entries(EXPECT).every(([k2, ex]) => JSON.stringify(T.GATED[k2].acts) === JSON.stringify(ex.acts)),
+      "gated knobs: canvas.js acts lists equal the expected table");
 
 console.log(`canvas.js: ${checks} checks, ${failures} failed`);
 process.exit(failures ? 1 : 0);

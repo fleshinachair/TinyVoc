@@ -22,6 +22,10 @@ static int g_fail;
 
 static void host_log(const char *m) { printf("  [host log] %s\n", m); }
 
+/* The slot's receive channel as the chain host answers it: -2 = no slot (omni). */
+static int g_recv = -2;
+static int host_slot_recv_channel(void *inst) { (void)inst; return g_recv; }
+
 static void run_audio(audio_fx_api_v2_t *api, void *inst, double hz, int blocks, int *nonzero, int *bad)
 {
     static int16_t buf[2 * 128];
@@ -53,6 +57,7 @@ int main(int argc, char **argv)
     host.sample_rate = MOVE_SAMPLE_RATE;
     host.frames_per_block = MOVE_FRAMES_PER_BLOCK;
     host.log = host_log;
+    host.slot_recv_channel = host_slot_recv_channel;
 
     audio_fx_api_v2_t *api = init(&host);
     CHECK(api != NULL);
@@ -92,11 +97,34 @@ int main(int argc, char **argv)
     CHECK(on_midi_sym != NULL);
     if (on_midi_sym) {
         const uint8_t on2[3] = {0x90, 67, 100}, off2[3] = {0x80, 67, 0};
-        on_midi_sym(inst, on2, 3, MOVE_MIDI_SOURCE_FX_BROADCAST);
+        on_midi_sym(inst, on2, 3, MOVE_MIDI_SOURCE_EXTERNAL);         /* the slot's own path */
         api->get_param(inst, "voices", buf, sizeof buf);
         CHECK(atoi(buf) == 2);
         printf("  move_audio_fx_on_midi exported and delivered a note (voices=%s)\n", buf);
-        on_midi_sym(inst, off2, 3, MOVE_MIDI_SOURCE_FX_BROADCAST);
+        on_midi_sym(inst, off2, 3, MOVE_MIDI_SOURCE_EXTERNAL);
+
+        /* The host's broadcast of every track's MIDI to every audio FX is
+         * ignored, whatever the channel (on the device the slot's own notes
+         * also arrive on their own path). */
+        const uint8_t bc[3] = {0x93, 62, 100};
+        on_midi_sym(inst, bc, 3, MOVE_MIDI_SOURCE_FX_BROADCAST);
+        api->get_param(inst, "voices", buf, sizeof buf);
+        CHECK(atoi(buf) == 1);
+        printf("  FX broadcast note ignored (voices=%s)\n", buf);
+
+        /* In a slot receiving channel 4 (byte 3): another channel's note is
+         * dropped even on the slot's path, the slot's own pad (0x93) plays. */
+        g_recv = 3;
+        const uint8_t other[3] = {0x90, 64, 100}, own[3] = {0x93, 64, 100}, own_off[3] = {0x83, 64, 0};
+        on_midi_sym(inst, other, 3, MOVE_MIDI_SOURCE_EXTERNAL);
+        api->get_param(inst, "voices", buf, sizeof buf);
+        CHECK(atoi(buf) == 1);                                        /* just the held C4 */
+        on_midi_sym(inst, own, 3, MOVE_MIDI_SOURCE_INTERNAL);
+        api->get_param(inst, "voices", buf, sizeof buf);
+        CHECK(atoi(buf) == 2);
+        printf("  slot channel 4: channel-1 note dropped, channel-4 note played (voices=%s)\n", buf);
+        on_midi_sym(inst, own_off, 3, MOVE_MIDI_SOURCE_INTERNAL);
+        g_recv = -2;
     }
 
     api->set_param(inst, "mode", "Robot");

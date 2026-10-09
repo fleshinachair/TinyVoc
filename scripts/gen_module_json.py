@@ -85,9 +85,12 @@ for role, k in zip(["a", "b"], ["freeze", "freeze_len"]):
 # (Robot, Chords, Prism), a dimmed "---" in the others. Same cell, same knob.
 next(x for x in PARAMS if x["key"] == "latch")["viz"] = {"kind": "custom:tinyvoc_latch", "group": "latch", "role": "a", "extra_keys": ["mode"]}
 
-# Beauty (MORE knob 8) draws its own value: a percentage in the modes it polishes
-# (Snap, Robot, Chords, Prism), a dimmed "N/A" in the others (Morph, Double, Tape).
-next(x for x in PARAMS if x["key"] == "beauty")["viz"] = {"kind": "custom:tinyvoc_beauty", "group": "beauty", "role": "a", "extra_keys": ["mode"]}
+# Knobs that do nothing in some modes draw their own value (a dimmed "N/A"
+# where they are inert): Key, Scale, Retune (TUNE), Glide, Beauty (MORE). Same
+# cell, same knob. The table of modes is vt_param_acts in dsp.h and GATED in
+# src/ui/canvas.js.
+for k in ["key", "scale", "retune", "glide", "beauty"]:
+    next(x for x in PARAMS if x["key"] == k)["viz"] = {"kind": "custom:tinyvoc_" + k, "group": k, "role": "a", "extra_keys": ["mode"]}
 
 # Pages: TUNE (live pitch + scope), SPACE (character + space), MORE (the rest).
 TUNE  = ["mode", "key", "scale", "retune", "pitch", "target", "cents", "mix"]

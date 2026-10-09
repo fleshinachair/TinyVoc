@@ -23,8 +23,17 @@ static void vt_destroy_instance(void *inst)
     dsp_cleanup((vt_t *)inst);
 }
 
+/* The slot's receive channel (0-15; -1 All, -2 no slot: both omni). Asked
+ * every block and before every message, so a channel changed in the slot
+ * settings applies at once. NULL on hosts without slot context: omni. */
+static void vt_sync_channel(void *inst)
+{
+    if (g_host && g_host->slot_recv_channel) dsp_set_midi_channel((vt_t *)inst, g_host->slot_recv_channel(inst));
+}
+
 static void vt_process_block(void *inst, int16_t *audio_inout, int frames)
 {
+    vt_sync_channel(inst);
     if (g_host && g_host->get_bpm) dsp_set_bpm((vt_t *)inst, g_host->get_bpm());   /* Demo's and Freeze's bar length */
     /* Transport position for Freeze's downbeat-synced takes; NULL on older hosts. */
     dsp_set_transport((vt_t *)inst, g_host && g_host->get_beat_position ? g_host->get_beat_position() : -1.0);
@@ -46,7 +55,8 @@ static int vt_get_param(void *inst, const char *key, char *buf, int buf_len)
 
 static void vt_on_midi(void *inst, const uint8_t *msg, int len, int source)
 {
-    (void)source;
+    vt_sync_channel(inst);
+    dsp_set_midi_source((vt_t *)inst, source);
     dsp_handle_midi((vt_t *)inst, msg, len);
 }
 

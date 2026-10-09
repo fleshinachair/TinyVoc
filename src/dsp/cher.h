@@ -99,7 +99,9 @@ int   cher_fold_chord(float ref, const int *in, int *out, int n, int prev_oct, i
 /* override_note: held MIDI note to force the target to (-1 = scale quantizer).
  * The note's name is kept and its octave folded toward the voice (pads are
  * often octaves above it, outside the shifter's +-1 octave).
- * glide_ms slews the target between override notes (0 = jump). */
+ * glide_ms slews the target between override notes (0 = jump).
+ * retune_ms 0 is a 4.5 ms snap; a negative retune_ms is instant (no slew at
+ * all: Snap at Beauty 0). */
 void  cher_set_params(cher_t *c, int root, int scale, float retune_ms, float gate_db,
                       int override_note, float glide_ms);
 float cher_process(cher_t *c, float in);           /* one sample in, one sample out */

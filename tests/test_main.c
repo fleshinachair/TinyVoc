@@ -366,17 +366,23 @@ static void test_dry_wet_alignment(void)
      * path is the shifter's plain delayed copy. The dry path must be delayed by
      * the same amount, so a pure-dry run (mix 0) and a pure-wet run (mix 1) over
      * the same noise are the same signal. Uncompensated they would be ~350
-     * samples apart and uncorrelated, which is what makes a blend comb. */
+     * samples apart and uncorrelated, which is what makes a blend comb.
+     * Noise is never pitched (unvoiced: the plain copy). Snap's fixed formant
+     * lift is cancelled with char1, and its telephone band is applied to the
+     * dry run too, since it is a linear filter on the wet path only. */
     static float dry_out[VT_SAMPLE_RATE / 2], wet_out[VT_SAMPLE_RATE / 2];
     for (int pass = 0; pass < 2; pass++) {
         vt_t *vt = dsp_init(VT_SAMPLE_RATE);
         dsp_set_param(vt, "mode", "Snap");
         dsp_set_param(vt, "mix", pass ? "1" : "0");
         dsp_set_param(vt, "gain", "0");
-        dsp_set_param(vt, "auto", "Off");                          /* manual gate, so that... */
-        dsp_set_param(vt, "gate", "0 dB");                         /* ...closed, nothing is ever pitched */
+        dsp_set_param(vt, "auto", "Off");
+        dsp_set_param(vt, "gate", "-60 dB");                       /* the input gate stays open */
         dsp_set_param(vt, "spread", "0");                          /* no chorus: compare the shifter path alone */
         dsp_set_param(vt, "beauty", "0");                          /* nor Beauty's double / shelf */
+        char c1[32];
+        snprintf(c1, sizeof c1, "%.9f", 0.5 - SNAP_FORMANT_LIFT / 24.0);
+        dsp_set_param(vt, "char1", c1);                            /* formant ratio 1 */
         unsigned seed = 99;
         static float blk[2 * 128];
         float *dst = pass ? wet_out : dry_out;
@@ -388,6 +394,9 @@ static void test_dry_wet_alignment(void)
         }
         dsp_cleanup(vt);
     }
+    static fx_t band;
+    fx_init(&band, VT_SAMPLE_RATE);
+    for (int i = 0; i < VT_SAMPLE_RATE / 2; i++) dry_out[i] = fx_snap_voicing(&band, dry_out[i]);
     double sxy = 0, sxx = 0, syy = 0;
     for (int i = 8192; i < VT_SAMPLE_RATE / 2; i++) {
         sxy += (double)dry_out[i] * wet_out[i];
@@ -1217,7 +1226,7 @@ static void test_module_json_matches_params(void)
             const char *o = js_elem(cp, i);
             if (o && js_get(o, "viz")) declared++;
         }
-        CHECK(declared == 7);                                    /* the scope's 3, Freeze banner's 2, Latch's 1, Beauty's 1 */
+        CHECK(declared == 11);                                   /* the scope's 3, Freeze banner's 2, Latch's 1, Key/Scale/Retune/Glide/Beauty 5 */
         /* Nothing disappears: no param is conditionally hidden. Gate holds
          * Auto as its lowest setting, then -60..0 dB. */
         for (int i = 0; i < js_arr_len(cp); i++) CHECK(js_get(js_elem(cp, i), "visible_if") == NULL);
@@ -1230,9 +1239,14 @@ static void test_module_json_matches_params(void)
         const char *lt = js_elem(cp, VT_P_LATCH), *lv = lt ? js_get(lt, "viz") : NULL;
         CHECK(lv && js_str(js_get(lv, "kind"), s, sizeof s) && strcmp(s, "custom:tinyvoc_latch") == 0);
         CHECK(lv && js_get(lv, "extra_keys") && js_str(js_elem(js_get(lv, "extra_keys"), 0), s, sizeof s) && strcmp(s, "mode") == 0);
-        const char *bt = js_elem(cp, VT_P_BEAUTY), *bv = bt ? js_get(bt, "viz") : NULL;
-        CHECK(bv && js_str(js_get(bv, "kind"), s, sizeof s) && strcmp(s, "custom:tinyvoc_beauty") == 0);
-        CHECK(bv && js_get(bv, "extra_keys") && js_str(js_elem(js_get(bv, "extra_keys"), 0), s, sizeof s) && strcmp(s, "mode") == 0);
+        static const int gated_ids[5] = { VT_P_KEY, VT_P_SCALE, VT_P_RETUNE, VT_P_GLIDE, VT_P_BEAUTY };
+        for (int g = 0; g < 5; g++) {                                /* Key, Scale, Retune, Glide, Beauty: N/A widgets */
+            const char *gp = js_elem(cp, gated_ids[g]), *gv = gp ? js_get(gp, "viz") : NULL;
+            char want_kind[48];
+            snprintf(want_kind, sizeof want_kind, "custom:tinyvoc_%s", dsp_param_def(gated_ids[g])->key);
+            CHECK(gv && js_str(js_get(gv, "kind"), s, sizeof s) && strcmp(s, want_kind) == 0);
+            CHECK(gv && js_get(gv, "extra_keys") && js_str(js_elem(js_get(gv, "extra_keys"), 0), s, sizeof s) && strcmp(s, "mode") == 0);
+        }
         char dummy[256];
         CHECK(dsp_get_param(w, "scope", dummy, sizeof dummy) > 0); /* the extra_key exists */
         dsp_cleanup(w);
@@ -2322,8 +2336,9 @@ static void test_auto_agc_and_gate(void)
 
 static void test_snap_pads_any_channel(void)
 {
-    /* A held pad sets Snap's target exactly, on any MIDI channel, as a 3-byte
-     * message or a 4-byte USB-MIDI packet; releasing it goes back to Key/Scale. */
+    /* Omni (a slot receiving All, or no slot context): a held pad sets Snap's
+     * target exactly, on any MIDI channel, as a 3-byte message or a 4-byte
+     * USB-MIDI packet; releasing it goes back to Key/Scale. */
     vt_t *vt = dsp_init(VT_SAMPLE_RATE);
     dsp_set_param(vt, "mode", "Snap");
     dsp_set_param(vt, "key", "C");
@@ -2362,6 +2377,128 @@ static void test_snap_pads_any_channel(void)
     run_sine(vt, 430.0, 0.4f, 150, &pos, NULL, 0);
     CHECK(fabs(viz_target(vt) - 440.0) < 0.5);                     /* back to the scale */
     dsp_cleanup(vt);
+}
+
+/* Run 1 s of a sung A3 through `mode` on a slot receiving channel 4, while
+ * `midi` is sent before block `at` each of `n` messages; output to out. */
+static void midi_run(const char *mode, int latch, const uint8_t (*midi)[3], int n, float *out)
+{
+    vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+    dsp_set_midi_channel(vt, 3);
+    dsp_set_param(vt, "mode", mode);
+    if (latch) dsp_set_param(vt, "latch", "On");
+    static float blk[2 * 128];
+    for (int b = 0, k = 0; b < VT_SAMPLE_RATE / 128; b++) {
+        for (int m = 0; m < n; m++) if (b == 40 + 20 * m) dsp_handle_midi(vt, midi[m], 3);
+        for (int i = 0; i < 128; i++, k++) blk[2 * i] = blk[2 * i + 1] = 0.3f * tone(220.0, k, 6, VT_SAMPLE_RATE);
+        dsp_process_block_f(vt, blk, 128);
+        for (int i = 0; i < 128; i++) out[b * 128 + i] = blk[2 * i];
+    }
+    dsp_cleanup(vt);
+}
+
+static void test_midi_channel_filter(void)
+{
+    /* The slot's own channel only. Move's sequencer keeps sending notes on
+     * muted tracks (with their MIDI Out on), and the chain host hands audio
+     * FX that MIDI too: in omni it played Robot's carrier and Chords/Prism
+     * voices on the device. Another channel's notes, sustain/all-notes-off
+     * CCs and pitch bend change nothing, bit for bit, in every pad mode, Latch
+     * included; the slot's own pad still plays. */
+    static const uint8_t foreign[6][3] = {
+        { 0x90, 64, 100 }, { 0x91, 67, 90 }, { 0xE2, 0, 80 },       /* ch 1 and 2 notes, ch 3 bend */
+        { 0x80, 64, 0 }, { 0xB0, 123, 0 }, { 0x9F, 71, 127 },       /* off, ch 1 all-notes-off, ch 16 note */
+    };
+    static const uint8_t own[1][3] = { { 0x93, 64, 100 } };         /* channel 4: this slot's pad */
+    static float base[VT_SAMPLE_RATE], got[VT_SAMPLE_RATE];
+    static const char *const modes[3] = { "Robot", "Chords", "Prism" };
+    for (int m = 0; m < 3; m++)
+        for (int latch = 0; latch < 2; latch++) {
+            midi_run(modes[m], latch, NULL, 0, base);
+            midi_run(modes[m], latch, foreign, 6, got);
+            const int same = memcmp(base, got, sizeof base) == 0;
+            midi_run(modes[m], latch, own, 1, got);
+            const int played = memcmp(base, got, sizeof base) != 0;
+            if (!same || !played) printf("  %s latch %d: other channels %s, own channel %s\n",
+                                         modes[m], latch, same ? "ignored" : "CHANGED THE OUTPUT", played ? "played" : "did nothing");
+            CHECK(same);
+            CHECK(played);
+        }
+
+    /* Lead modes too, and the bookkeeping: no voice, no latch entry, no
+     * note-on counted for the screen; drops are counted in diag. */
+    vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+    dsp_set_midi_channel(vt, 3);
+    dsp_set_param(vt, "mode", "Snap");
+    dsp_set_param(vt, "latch", "On");
+    for (int m = 0; m < 6; m++) dsp_handle_midi(vt, foreign[m], 3);
+    const uint8_t usb_other[4] = { 0x09, 0x95, 67, 100 };          /* USB-MIDI packet, channel 6 */
+    dsp_handle_midi(vt, usb_other, 4);
+    CHECK(dsp_active_voices(vt) == 0);
+    char d[512];
+    dsp_get_param(vt, "diag", d, sizeof d);
+    CHECK(strstr(d, "latch -1 -1 -1 -1") != NULL);
+    CHECK(strstr(d, "midi ch 4, foreign 7") != NULL);
+    dsp_handle_midi(vt, own[0], 3);
+    CHECK(dsp_active_voices(vt) == 1);
+    const uint8_t panic_other[3] = { 0xB5, 123, 0 }, panic_own[3] = { 0xB3, 123, 0 };
+    dsp_handle_midi(vt, panic_other, 3);
+    CHECK(dsp_active_voices(vt) == 1);                             /* another track's panic: kept */
+    dsp_handle_midi(vt, panic_own, 3);
+    CHECK(dsp_active_voices(vt) == 0);
+
+    /* Omni again (the slot set to All, or no slot context: -1 / -2). */
+    dsp_set_midi_channel(vt, -2);
+    dsp_handle_midi(vt, foreign[0], 3);
+    CHECK(dsp_active_voices(vt) == 1);
+    dsp_get_param(vt, "diag", d, sizeof d);
+    CHECK(strstr(d, "midi ch 0,") != NULL);
+    dsp_cleanup(vt);
+
+    /* The host's broadcast of every track's MIDI to every audio FX (source 4)
+     * is ignored, even in omni and on the slot's own channel (its own notes
+     * also come on their own path, source 2 on the device; the slot channel
+     * lookup answers -2 for an FX there). The source covers one message. */
+    vt = dsp_init(VT_SAMPLE_RATE);
+    dsp_set_midi_channel(vt, -2);
+    const uint8_t bc_other[3] = { 0x90, 69, 100 }, bc_own[3] = { 0x93, 71, 100 };
+    dsp_set_midi_source(vt, VT_MIDI_SOURCE_BROADCAST);
+    dsp_handle_midi(vt, bc_other, 3);
+    dsp_set_midi_source(vt, VT_MIDI_SOURCE_BROADCAST);
+    dsp_handle_midi(vt, bc_own, 3);
+    CHECK(dsp_active_voices(vt) == 0);
+    dsp_set_midi_source(vt, 2);
+    dsp_handle_midi(vt, bc_own, 3);
+    CHECK(dsp_active_voices(vt) == 1);
+    dsp_handle_midi(vt, bc_other, 3);                              /* no source given: the slot's */
+    CHECK(dsp_active_voices(vt) == 2);
+    dsp_get_param(vt, "diag", d, sizeof d);
+    if (!strstr(d, "foreign 2, recv -2, last 90/69/s-1 93/71/s2 93/71/s4 90/69/s4")) printf("  diag: %s\n", d);
+    CHECK(strstr(d, "foreign 2, recv -2, last 90/69/s-1 93/71/s2 93/71/s4 90/69/s4") != NULL);
+    dsp_cleanup(vt);
+
+    /* Robot, the device case: other tracks' broadcasts change nothing. */
+    {
+        static float r0[VT_SAMPLE_RATE], r1[VT_SAMPLE_RATE];
+        for (int pass = 0; pass < 2; pass++) {
+            vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "mode", "Robot");
+            static float blk[2 * 128];
+            float *o = pass ? r1 : r0;
+            for (int b = 0, k = 0; b < VT_SAMPLE_RATE / 128; b++) {
+                if (pass && b % 25 == 0) {
+                    const uint8_t n[3] = { (uint8_t)(0x90 | (b / 25) % 3), (uint8_t)(50 + b % 20), 100 };
+                    dsp_set_midi_source(vt, VT_MIDI_SOURCE_BROADCAST);
+                    dsp_handle_midi(vt, n, 3);
+                }
+                for (int i = 0; i < 128; i++, k++) blk[2 * i] = blk[2 * i + 1] = 0.3f * tone(220.0, k, 6, VT_SAMPLE_RATE);
+                dsp_process_block_f(vt, blk, 128);
+                for (int i = 0; i < 128; i++) o[b * 128 + i] = blk[2 * i];
+            }
+            dsp_cleanup(vt);
+        }
+        CHECK(memcmp(r0, r1, sizeof r0) == 0);
+    }
 }
 
 static void test_pad_octave_fold(void)
@@ -2521,7 +2658,8 @@ static void test_snap_believe(void)
 
     /* Formant coupling: shifting a vowel up 7 st sounds brighter than shifting
      * it down 7 st (pure decoupled PSOLA would leave them about equal); more so
-     * as char1 rises past 0.5. */
+     * as char1 rises past 0.5 (less than it was: the 5 kHz band caps how
+     * bright the up-shift gets; x1.13 measured, x1.17 before the band). */
     double skew[2];
     const float c1s[2] = { 0.5f, 0.75f };
     for (int k = 0; k < 2; k++) {
@@ -2531,9 +2669,9 @@ static void test_snap_believe(void)
         double down = harmonic_centroid(out + N - 8192, 8192, 146.832);
         skew[k] = up / down;
     }
-    if (!(skew[0] > 1.08 && skew[1] > 1.15 * skew[0])) printf("  believe skew: char1 0.5 x%.3f, 0.75 x%.3f\n", skew[0], skew[1]);
+    if (!(skew[0] > 1.08 && skew[1] > 1.08 * skew[0])) printf("  believe skew: char1 0.5 x%.3f, 0.75 x%.3f\n", skew[0], skew[1]);
     CHECK(skew[0] > 1.08);
-    CHECK(skew[1] > 1.15 * skew[0]);
+    CHECK(skew[1] > 1.08 * skew[0]);
 
     /* Tight grains (char1 1) keep the pitch clean and the level within 4 dB. */
     snap_run(&fx, &c, 0.5f, 0.0f, src_tone_220, 62, 62, N, N, out);
@@ -3508,19 +3646,23 @@ static void test_snap_no_clicks(void)
     dsp_cleanup(vt);
 
     /* A Retune-0 pad jump (with its phase reset) puts no step in the output:
-     * on a 0.5 sine the largest sample-to-sample change stays near the
-     * sine's own slope. */
+     * the largest sample-to-sample change around it stays near the steady
+     * sine's own slope on either note (relative: Snap's telephone band takes
+     * a 220 Hz sine down ~16 dB, and a click is broadband, so it would pass
+     * the band). Same for Beauty 0's instant retune (retune < 0). */
     static fx_t fx;
     enum { NN = 2 * VT_SAMPLE_RATE, AT = 128 * 345 };
     static float out[NN];
-    snap_run(&fx, &c, 0.5f, 0.0f, src_sine_220, 57, 62, AT, NN, out);
-    float worst = 0.0f;
-    for (int i = AT - 2000; i < AT + 4000; i++) {
-        float d = fabsf(out[i] - out[i - 1]);
-        if (d > worst) worst = d;
+    const float rts[2] = { 0.0f, -1.0f };
+    for (int k = 0; k < 2; k++) {
+        snap_run(&fx, &c, 0.5f, rts[k], src_sine_220, 57, 62, AT, NN, out);
+        float worst = 0.0f, slope = 0.0f;
+        for (int i = AT - 2000; i < AT + 4000; i++) worst = fmaxf(worst, fabsf(out[i] - out[i - 1]));
+        for (int i = AT - 12000; i < AT - 6000; i++) slope = fmaxf(slope, fabsf(out[i] - out[i - 1]));
+        for (int i = AT + 20000; i < AT + 26000; i++) slope = fmaxf(slope, fabsf(out[i] - out[i - 1]));
+        if (!(worst < 1.3f * slope)) printf("  snap jump (retune %g): worst sample step %.4f, steady slope %.4f\n", rts[k], worst, slope);
+        CHECK(worst < 1.3f * slope);
     }
-    if (worst > 0.05f) printf("  snap jump: worst sample step %.3f (sine slope ~0.03)\n", worst);
-    CHECK(worst < 0.05f);
 }
 
 /* A rough sung vowel for the tracker: f0 with +-30 ct vibrato, 1.5% jitter,
@@ -3718,44 +3860,69 @@ static void test_beauty(void)
             }
 }
 
-/* Beauty is dim ("N/A") in Morph, Double and Tape: the knob there changes
- * nothing, the amount waits for the next mode that uses it, and a restored
- * state still sets it whatever the mode. */
-static void test_beauty_na(void)
+/* Knobs that do nothing in a mode (Key, Scale, Retune, Glide, Beauty) show
+ * "N/A" there (canvas.js, tested in canvas_test.mjs against this same table)
+ * and ignore turns: the stored value waits for the next mode that uses it. A
+ * restored state, and any write in the first second after load, still set
+ * them whatever the mode. */
+static void test_inert_knobs(void)
 {
     static const char *const modes[VT_MODE_COUNT] = { "Snap", "Robot", "Chords", "Morph", "Prism", "Double", "Tape" };
-    static const int acts[VT_MODE_COUNT] = { 1, 1, 1, 0, 1, 0, 0 };
+    static const struct { int id; const char *key, *a, *b; int enum_; int acts[VT_MODE_COUNT]; } k[5] = {
+        /*                                                         Snap Robot Chords Morph Prism Double Tape */
+        { VT_P_KEY,    "key",    "D",     "A",     1, { 1, 1, 1, 1, 1, 1, 0 } },
+        { VT_P_SCALE,  "scale",  "Major", "Minor", 1, { 1, 0, 1, 1, 1, 1, 0 } },
+        { VT_P_RETUNE, "retune", "100",   "300",   0, { 1, 0, 1, 1, 0, 1, 0 } },
+        { VT_P_GLIDE,  "glide",  "100",   "300",   0, { 1, 1, 1, 1, 1, 1, 0 } },
+        { VT_P_BEAUTY, "beauty", "0.3",   "0.9",   0, { 1, 1, 1, 0, 1, 0, 0 } },
+    };
+    static float zero[2 * 128];
     char buf[64];
-    for (int m = 0; m < VT_MODE_COUNT; m++) {
-        CHECK(vt_beauty_acts(m) == acts[m]);
-        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
-        dsp_set_param(vt, "mode", "Snap");
-        dsp_set_param(vt, "beauty", "0.3");
-        dsp_set_param(vt, "mode", modes[m]);
-        CHECK(dsp_set_param(vt, "beauty", "0.9") == 0);
-        dsp_get_param(vt, "beauty", buf, sizeof buf);
-        CHECK(fabs(atof(buf) - (acts[m] ? 0.9 : 0.3)) < 1e-3);      /* applied, or ignored */
-        dsp_set_param(vt, "mode", "Snap");                          /* the waiting amount is back */
-        dsp_get_param(vt, "beauty", buf, sizeof buf);
-        CHECK(fabs(atof(buf) - (acts[m] ? 0.9 : 0.3)) < 1e-3);
+#define SAME(vt, key, want) (dsp_get_param((vt), (key), buf, sizeof buf) > 0 &&         (k[i].enum_ ? strcmp(buf, (want)) == 0 : fabs(atof(buf) - atof(want)) < 1e-3))
+    for (int i = 0; i < 5; i++)
+        for (int m = 0; m < VT_MODE_COUNT; m++) {
+            CHECK(vt_param_acts(k[i].id, m) == k[i].acts[m]);
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
 
-        /* state / config restore sets it in any mode, in either key order */
-        dsp_set_param(vt, "state", "{\"beauty\":\"0.7\",\"mode\":\"Tape\"}");
-        dsp_get_param(vt, "beauty", buf, sizeof buf);
-        CHECK(fabs(atof(buf) - 0.7) < 1e-3);
-        dsp_set_param(vt, "state", "{\"mode\":\"Morph\",\"beauty\":\"0.2\"}");
-        dsp_get_param(vt, "beauty", buf, sizeof buf);
-        CHECK(fabs(atof(buf) - 0.2) < 1e-3);
-        dsp_set_param(vt, "beauty", "0.6");                         /* a knob turn again: Morph ignores it */
-        dsp_get_param(vt, "beauty", buf, sizeof buf);
-        CHECK(fabs(atof(buf) - 0.2) < 1e-3);
-        dsp_cleanup(vt);
+            /* just loaded: writes land whatever the mode (a host may restore key by key) */
+            dsp_set_param(vt, "mode", modes[m]);
+            dsp_set_param(vt, k[i].key, k[i].a);
+            CHECK(SAME(vt, k[i].key, k[i].a));
+
+            for (int b = 0; b < VT_SAMPLE_RATE / 128 + 2; b++) dsp_process_block_f(vt, zero, 128);   /* loaded */
+            CHECK(dsp_set_param(vt, k[i].key, k[i].b) == 0);
+            CHECK(SAME(vt, k[i].key, k[i].acts[m] ? k[i].b : k[i].a));                     /* applied, or ignored */
+            dsp_set_param(vt, "mode", "Snap");                                             /* the waiting value is back */
+            CHECK(SAME(vt, k[i].key, k[i].acts[m] ? k[i].b : k[i].a));
+
+            /* a restored state sets it in any mode, in either key order */
+            char st[160];
+            dsp_set_param(vt, "mode", modes[m]);
+            snprintf(st, sizeof st, "{\"%s\":\"%s\",\"mode\":\"Tape\"}", k[i].key, k[i].b);
+            dsp_set_param(vt, "state", st);
+            CHECK(SAME(vt, k[i].key, k[i].b));
+            snprintf(st, sizeof st, "{\"mode\":\"%s\",\"%s\":\"%s\"}", modes[m], k[i].key, k[i].a);
+            dsp_set_param(vt, "state", st);
+            CHECK(SAME(vt, k[i].key, k[i].a));
+            dsp_cleanup(vt);
+        }
+#undef SAME
+
+    /* every other knob acts in every mode */
+    for (int id = 0; id < VT_P_COUNT; id++) {
+        int gated = 0;
+        for (int i = 0; i < 5; i++) gated |= id == k[i].id;
+        if (!gated) for (int m = 0; m < VT_MODE_COUNT; m++) CHECK(vt_param_acts(id, m) == 1);
     }
 
-    vt_t *w = dsp_init(VT_SAMPLE_RATE);                             /* the widget gets mode as an extra key */
+    vt_t *w = dsp_init(VT_SAMPLE_RATE);                             /* the widgets get mode as an extra key */
     static char cp[16384];
     CHECK(dsp_get_param(w, "chain_params", cp, sizeof cp) > 0);
-    CHECK(strstr(cp, "custom:tinyvoc_beauty") != NULL);
+    for (int i = 0; i < 5; i++) {
+        char kind[48];
+        snprintf(kind, sizeof kind, "custom:tinyvoc_%s", k[i].key);
+        CHECK(strstr(cp, kind) != NULL);
+    }
     dsp_cleanup(w);
 }
 
@@ -4219,6 +4386,138 @@ static void test_gate_unified(void)
         }
 }
 
+/* Instances share nothing (no globals but the host pointer): one singing,
+ * one hearing silence, run interleaved block by block. The silent one stays
+ * at exact zeros and never reports a pitch; the singing one is bit-identical
+ * to running alone. */
+static void test_instances_isolated(void)
+{
+    vt_t *a = dsp_init(VT_SAMPLE_RATE), *b = dsp_init(VT_SAMPLE_RATE), *solo = dsp_init(VT_SAMPLE_RATE);
+    static float ba[2 * 128], bb[2 * 128], bs[2 * 128];
+    int same = 1, b_silent = 1, b_pitch = 0;
+    unsigned seed = 7;
+    for (int k = 0; k < VT_SAMPLE_RATE / 128; k++) {
+        for (int i = 0; i < 128; i++) {
+            long p = (long)k * 128 + i;
+            ba[2 * i] = ba[2 * i + 1] = bs[2 * i] = bs[2 * i + 1] = sig_voice(p, &seed);
+            bb[2 * i] = bb[2 * i + 1] = 0.0f;
+        }
+        dsp_process_block_f(a, ba, 128);
+        dsp_process_block_f(b, bb, 128);
+        dsp_process_block_f(solo, bs, 128);
+        same &= memcmp(ba, bs, sizeof ba) == 0;
+        if (k > 3 * VT_SAMPLE_RATE / 10 / 128) {
+            for (int i = 0; i < 256; i++) b_silent &= bb[i] == 0.0f;
+            char vz[96];
+            float f0 = 0;
+            dsp_get_param(b, "viz", vz, sizeof vz);
+            sscanf(vz, "c,%f", &f0);
+            b_pitch |= f0 > 0.0f;
+        }
+    }
+    CHECK(same);
+    CHECK(b_silent);
+    CHECK(!b_pitch);
+    dsp_cleanup(a);
+    dsp_cleanup(b);
+    dsp_cleanup(solo);
+}
+
+/* Gain of fx_snap_voicing at f, in dB (steady sine). */
+static double snap_band_db(double f)
+{
+    static fx_t fx;
+    fx_init(&fx, VT_SAMPLE_RATE);
+    enum { N = VT_SAMPLE_RATE / 2 };
+    static float y[N];
+    for (int i = 0; i < N; i++) y[i] = fx_snap_voicing(&fx, 0.1f * (float)sin(2.0 * M_PI * f * i / VT_SAMPLE_RATE));
+    return 20.0 * log10(rms_of(y + N / 2, N / 2) / (0.1 / sqrt(2.0)) + 1e-12);
+}
+
+/* Output pitch of `mode` on a steady sine at f, measured over [t0, t1) s. */
+static double mode_pitch(const char *mode, const char *beauty, double f, double t0, double t1)
+{
+    vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+    dsp_set_param(vt, "mode", mode);
+    dsp_set_param(vt, "gate", "-60 dB");
+    dsp_set_param(vt, "retune", "500");
+    dsp_set_param(vt, "glide", "500");
+    dsp_set_param(vt, "beauty", beauty);
+    dsp_set_param(vt, "spread", "0");
+    enum { N = VT_SAMPLE_RATE / 2 };
+    static float out[N];
+    long pos = 0;
+    run_sine(vt, f, 0.3f, N / 128, &pos, out, N);
+    dsp_cleanup(vt);
+    return zc_freq(out + (int)(t0 * VT_SAMPLE_RATE), (int)((t1 - t0) * VT_SAMPLE_RATE));
+}
+
+static void test_snap_space_age(void)
+{
+    /* The telephone band: 4th-order 350 Hz high-pass (chest gone), 4th-order
+     * 5 kHz low-pass (air gone), a bite at 2.5 kHz. */
+    const double g100 = snap_band_db(100.0), g1k = snap_band_db(1000.0);
+    const double g2k5 = snap_band_db(2500.0), g10k = snap_band_db(10000.0);
+    if (!(g100 < g1k - 30.0 && g10k < g1k - 18.0 && g2k5 > g1k + 2.0))
+        printf("  snap band: 100 Hz %+.1f, 1 kHz %+.1f, 2.5 kHz %+.1f, 10 kHz %+.1f dB\n", g100, g1k, g2k5, g10k);
+    CHECK(g100 < g1k - 30.0);
+    CHECK(g10k < g1k - 18.0);
+    CHECK(g2k5 > g1k + 2.0);
+
+    /* Snap only: a low voice's fundamental is stripped in Snap and kept in
+     * Morph and Double (same tracker, same note). */
+    double share[3];
+    static const char *const ms[3] = { "Snap", "Morph", "Double" };
+    for (int m = 0; m < 3; m++) {
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "mode", ms[m]);
+        dsp_set_param(vt, "gate", "-60 dB");
+        dsp_set_param(vt, "spread", "0");
+        enum { N = VT_SAMPLE_RATE };
+        static float out[N];
+        static float blk[2 * 128];
+        int k = 0;
+        for (long p = 0; p < N; p += 128) {
+            for (int i = 0; i < 128; i++) blk[2 * i] = blk[2 * i + 1] = 0.5f * tone(146.832, (int)(p + i), 6, VT_SAMPLE_RATE);
+            dsp_process_block_f(vt, blk, 128);
+            for (int i = 0; i < 128; i++) out[k++] = blk[2 * i];
+        }
+        const double r = rms_of(out + N / 2, N / 2);
+        share[m] = 10.0 * log10(2.0 * goertzel(out + N / 2, N / 2, 146.832) / (r * r + 1e-20) + 1e-20);
+        dsp_cleanup(vt);
+    }
+    if (!(share[0] < share[1] - 20.0 && share[0] < share[2] - 20.0))
+        printf("  fundamental share: Snap %.1f, Morph %.1f, Double %.1f dB\n", share[0], share[1], share[2]);
+    CHECK(share[0] < share[1] - 20.0);
+    CHECK(share[0] < share[2] - 20.0);
+
+    /* The formant sits +2.5 st up at char1 0.5: brighter than with the lift
+     * cancelled, on a voice that needs no correction. */
+    static cher_t c;
+    static fx_t fx;
+    enum { NV = VT_SAMPLE_RATE };
+    static float vout[NV];
+    snap_run(&fx, &c, 0.5f, 0.0f, src_vowel_220, 57, 57, NV, NV, vout);
+    const double lifted = harmonic_centroid(vout + NV - 8192, 8192, 220.0);
+    snap_run(&fx, &c, 0.5f - SNAP_FORMANT_LIFT / 24.0f, 0.0f, src_vowel_220, 57, 57, NV, NV, vout);
+    const double flat = harmonic_centroid(vout + NV - 8192, 8192, 220.0);
+    if (!(lifted > 1.04 * flat)) printf("  snap formant lift: centroid %.0f Hz vs %.0f Hz without\n", lifted, flat);
+    CHECK(lifted > 1.04 * flat);
+
+    /* Beauty 0: Snap retunes instantly, whatever Retune (500 ms) and Glide
+     * say. A sine 46 ct under A#3 is on A#3 at once; at Beauty 0.5 it is
+     * still sliding, and Morph ignores Beauty. */
+    const double asharp = 233.082, f_in = 227.0;
+    const double inst = cents(mode_pitch("Snap", "0", f_in, 0.15, 0.3), asharp);
+    const double slow = cents(mode_pitch("Snap", "0.5", f_in, 0.15, 0.3), asharp);
+    const double morph = cents(mode_pitch("Morph", "0", f_in, 0.15, 0.3), asharp);
+    if (!(fabs(inst) < 8.0 && slow < -15.0 && morph < -15.0))
+        printf("  instant retune: Snap Beauty 0 %+.1f ct, Beauty 0.5 %+.1f ct, Morph Beauty 0 %+.1f ct\n", inst, slow, morph);
+    CHECK(fabs(inst) < 8.0);
+    CHECK(slow < -15.0);
+    CHECK(morph < -15.0);
+}
+
 /* ------------------------------------------------- pending engine tests */
 
 int main(void)
@@ -4281,7 +4580,7 @@ int main(void)
     RUN(test_tracker_octaves);
     RUN(test_pads_silent_without_voice);
     RUN(test_beauty);
-    RUN(test_beauty_na);
+    RUN(test_inert_knobs);
     RUN(test_mode_switch_clean);
     RUN(test_robot_phrase_onset);
     RUN(test_robot_carrier_register);
@@ -4289,11 +4588,14 @@ int main(void)
     RUN(test_latch);
     RUN(test_consonants_with_rumble);
     RUN(test_gate_unified);
+    RUN(test_instances_isolated);
+    RUN(test_snap_space_age);
     RUN(test_robot_consonants_and_articulation);
     RUN(test_snap_scale_switch);
     RUN(test_auto_silence_gate);
     RUN(test_robot_silent_pauses_and_key);
     RUN(test_snap_pads_any_channel);
+    RUN(test_midi_channel_filter);
     RUN(test_state_roundtrip);
     RUN(test_module_json_matches_params);
 

@@ -437,7 +437,7 @@ float cher_lead_lr(cher_t *c)
     /* Retune: one-pole on log2 ratio, never faster than RETUNE_MIN_MS (Retune
      * 0 still sounds like a hard snap, without an instant ratio jump). */
     const float rt = c->retune_ms > RETUNE_MIN_MS ? c->retune_ms : RETUNE_MIN_MS;
-    float a = 1.0f - expf(-1000.0f / (rt * c->sr));
+    float a = c->retune_ms < 0.0f ? 1.0f : 1.0f - expf(-1000.0f / (rt * c->sr));   /* < 0: instant (Snap, Beauty 0) */
     if (c->override_note >= 0) {
         c->glide_off *= 1.0f - c->glide_a;
         if (fabsf(c->glide_off) < 1e-5f) c->glide_off = 0.0f;

@@ -8,6 +8,7 @@
  *
  * Macro knobs (char1, char2, mod are 0..1; 0.5 is neutral where bipolar):
  *   Snap    char1 formant -12..+12 st   char2 tracking sensitivity   mod vibrato depth
+ *           (+2.5 st fixed lift, telephone band + 2.5 kHz bite: SNAP_* below)
  *   Morph   char1 formant -12..+12 st   char2 drive / saturation     mod formant wobble
  *   Prism   char1 harmony spread        char2 tape warmth            mod humanize
  *   Double  char1 double detune         char2 stereo width           mod drift
@@ -26,6 +27,19 @@ extern "C" {
 #define FX_VOICES   4
 #define FX_MT_LEN 1024        /* Beauty micro-timing lines: up to ~23 ms */
 #define FX_HAAS_LEN 2048        /* power of two; Haas taps reach 25 ms + drift */
+
+/* Snap's "space-age" voicing, fixed: a telephone band (4th-order 350 Hz
+ * high-pass, 4th-order 5 kHz low-pass), a +4 dB bite at 2.5 kHz, and the
+ * formant lifted 2.5 st on top of char1. Snap only. */
+#define SNAP_HPF_HZ        350.0f
+#define SNAP_LPF_HZ        5000.0f
+#define SNAP_BITE_HZ       2500.0f
+#define SNAP_BITE_DB       4.0f
+#define SNAP_FORMANT_LIFT  2.5f   /* semitones */
+#define SNAP_MAKEUP        1.66f  /* +4.4 dB: what the band takes off the demo phrase, given back */
+
+/* TPT state-variable filter section (fixed coefficients). */
+typedef struct { float a1, a2, a3, k, s1, s2; } fx_svf_t;
 
 typedef struct {
     float sr;
@@ -65,6 +79,8 @@ typedef struct {
     float beauty;
     float sh_x, sh_y, a12;                         /* Snap: 12 kHz air shelf */
     float hb[2], hb_env, hf_env, hk, k_env10;      /* Snap: anti-harshness (2.5-5 kHz dynamic cut) */
+    fx_svf_t tel[5];                               /* Snap: HP, HP, LP, LP, 2.5 kHz bite */
+    float tel_bite, tel_makeup;
     float mt[FX_VOICES][FX_MT_LEN], mt_d[FX_VOICES];   /* Prism: micro-timing per harmony voice */
     int   mt_w;
     float tape_phi;              /* Tape: delay-line shifter phase */
@@ -85,6 +101,10 @@ void  fx_set(fx_t *fx, const cher_t *c, int mode, float char1, float char2, floa
 
 /* One sample: pushes `in` through the tracker and renders stereo. */
 void  fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r);
+
+/* Snap's telephone band + 2.5 kHz bite + makeup, one sample (stateful; used
+ * by the Snap case, exposed for tests). */
+float fx_snap_voicing(fx_t *fx, float x);
 
 /* Wet-path latency in samples, for lining up the dry signal. */
 float fx_latency(const fx_t *fx, const cher_t *c);

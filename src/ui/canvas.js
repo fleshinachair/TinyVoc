@@ -314,25 +314,40 @@
         ctx.print(x, ty, txt, on ? 0 : 1);
     }
 
-    /* custom:tinyvoc_beauty, MORE knob 8. Beauty polishes Snap, Robot, Chords
-     * and Prism: there the value as a percentage; in Morph, Double and Tape
-     * a dimmed "N/A" (every other pixel cleared). Same cell, name and knob in
-     * every mode; the DSP ignores turns where it does nothing. Until the mode
-     * has been read it shows the value. */
-    const BEAUTY_MODES = ["Snap", "Robot", "Chords", "Prism"];
-    function drawBeauty(ctx, payload) {
+    /* The knobs that do nothing in some modes: Key, Scale, Retune (TUNE),
+     * Glide, Beauty (MORE). Where a knob acts the widget shows its value as
+     * the stock knob would; where it doesn't, a dimmed "N/A" (every other
+     * pixel cleared: the 1-bit screen's grey). Same cell, name and knob in
+     * every mode, and the DSP ignores turns where the knob does nothing. The
+     * "acts" lists are the same table as vt_param_acts in dsp.h (both test
+     * suites check the same expected table). Until the mode has been read it shows the value.
+     * Candidates run longest to shortest; the first that fits the cell wins. */
+    const ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const SCALES = ["Chromatic", "Major", "Minor", "Pentatonic", "Dorian"];
+    const SCALE_SHORT = { Chromatic: ["Chromatic", "Chrom", "Chr"], Pentatonic: ["Pentatonic", "Penta", "Pen"], Dorian: ["Dorian", "Dor"] };
+    const ms = (v) => { const n = Number(v), r = Number.isFinite(n) ? Math.round(Math.max(0, Math.min(500, n))) : 0; return [r + "ms", String(r)]; };
+    const GATED = {
+        key:    { acts: ["Snap", "Robot", "Chords", "Morph", "Prism", "Double"],
+                  text: (v) => [optName(v, ROOTS, "C")] },
+        scale:  { acts: ["Snap", "Chords", "Morph", "Prism", "Double"],
+                  text: (v) => { const n = optName(v, SCALES, "Chromatic"); return SCALE_SHORT[n] || [n]; } },
+        retune: { acts: ["Snap", "Chords", "Morph", "Double"], text: ms },
+        glide:  { acts: ["Snap", "Robot", "Chords", "Morph", "Prism", "Double"], text: ms },
+        beauty: { acts: ["Snap", "Robot", "Chords", "Prism"],
+                  text: (v) => { const n = Number(v); return [(Number.isFinite(n) ? Math.round(Math.max(0, Math.min(1, n)) * 100) : 0) + "%"]; } },
+    };
+    function drawGated(ctx, payload, key) {
+        const g = GATED[key];
         const values = (payload && payload.values) || {};
         const W = ctx.width, H = ctx.height;
         const tw = (s) => (typeof ctx.textWidth === "function" ? ctx.textWidth(s) : s.length * 6);
         const ty = Math.max(0, Math.min(H - TEXT_H, Math.floor((H - TEXT_H - 3) / 2)));
         const mode = optName(values.mode, MODES, null);
-        let txt, dim = false;
-        if (mode && BEAUTY_MODES.indexOf(mode) < 0) {
-            txt = "N/A"; dim = true;
-        } else {
-            const v = Number(values.beauty);
-            txt = (Number.isFinite(v) ? Math.round(Math.max(0, Math.min(1, v)) * 100) : 0) + "%";
-        }
+        const dim = !!mode && g.acts.indexOf(mode) < 0;
+        const cands = dim ? ["N/A"] : g.text(values[key]);
+        let txt = cands[cands.length - 1];
+        for (const c of cands) if (tw(c) <= W - 2) { txt = c; break; }
+        while (tw(txt) > W - 2 && txt.length > 1) txt = txt.slice(0, -1);   /* a narrow cell: clip the shortest form */
         const x = Math.max(0, Math.floor((W - tw(txt)) / 2));
         ctx.print(x, ty, txt, 1);
         if (dim && typeof ctx.setPixel === "function")
@@ -340,15 +355,21 @@
                 for (let xx = x; xx < Math.min(W, x + tw(txt)); xx++)
                     if ((xx + y) & 1) ctx.setPixel(xx, y, 0);
     }
+    const gatedWidget = (key) => ({ draw: (ctx, payload) => drawGated(ctx, payload, key), nominal: { w: 32, h: 15 } });
+    const drawBeauty = (ctx, payload) => drawGated(ctx, payload, "beauty");
 
     globalThis.canvas_overlay = {
         widgetKinds: {
-            "custom:tinyvoc_beauty": { draw: drawBeauty, nominal: { w: 32, h: 15 } },
+            "custom:tinyvoc_key": gatedWidget("key"),
+            "custom:tinyvoc_scale": gatedWidget("scale"),
+            "custom:tinyvoc_retune": gatedWidget("retune"),
+            "custom:tinyvoc_glide": gatedWidget("glide"),
+            "custom:tinyvoc_beauty": gatedWidget("beauty"),
             "custom:tinyvoc_scope": { draw, nominal: { w: 96, h: 15 } },
             "custom:tinyvoc_freeze": { draw: drawFreeze, nominal: { w: 64, h: 15 } },
             "custom:tinyvoc_latch": { draw: drawLatch, nominal: { w: 32, h: 15 } },
         },
     };
     /* test seam (tests/canvas_test.mjs) */
-    globalThis.TINYVOC_SCOPE_FOR_TEST = { draw, drawFreeze, drawLatch, drawBeauty, parse, loopPhase, recFill, noteName, st };
+    globalThis.TINYVOC_SCOPE_FOR_TEST = { draw, drawFreeze, drawLatch, drawBeauty, drawGated, GATED, parse, loopPhase, recFill, noteName, st };
 })();

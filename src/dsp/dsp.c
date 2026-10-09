@@ -40,6 +40,7 @@
 #define ROBOT_REG_HI    72     /* so their mean sits in C3..B4 */
 #define GATE_DEFAULT_DB (-39)  /* the manual level until one is chosen: above room noise */
 #define MODE_FADE_SEC   0.005f /* a mode switch fades the old engine out and the new one in */
+#define SNAP_INSTANT_BEAUTY 0.005f /* Beauty at (or within half a step of) 0: Snap retunes instantly */
 
 /* Auto's input AGC (every mode): soft voices are lifted towards a working
  * level, loud ones eased down. It holds its gain in silence rather than
@@ -174,6 +175,12 @@ struct vt {
      * ~1 s, and how often the voice gate was open. Updated per block. */
     float dg_in_pk, dg_in_min, dg_out_pk, dg_open, dg_ropen, dg_out_ms;
     unsigned midi_note_ons;     /* note-ons received, for the screen / diagnostics */
+    int      midi_ch;           /* the slot's receive channel 0-15, -1 = omni */
+    unsigned midi_foreign;      /* channel messages dropped for another channel (diag) */
+    int      midi_ch_raw;       /* what the host answered for the slot's channel (diag) */
+    int      midi_src;          /* source of the message being handled (diag) */
+    int      midi_log[6][3];    /* last note-ons: status, note, source (diag) */
+    int      midi_log_n;
     int   demo_active, demo_saved_mode;
     int   demo_pinned;            /* Mode turned during Demo: the tour stops on it */
     int   restoring;              /* inside apply_state: Beauty is set whatever the mode */
@@ -242,6 +249,9 @@ vt_t *dsp_init(int sample_rate)
     verb_init(&vt->verb, (float)vt->sample_rate);
     vt->label_mode = -1;
     vt->run_mode = -1;
+    vt->midi_ch = -1;                       /* omni until the host names the slot's channel */
+    vt->midi_ch_raw = -99;                  /* never asked */
+    vt->midi_src = -1;
     vt->gate_mem = gate_opt_of(GATE_DEFAULT_DB);
     vt->hp_a = expf(-2.0f * 3.14159265f * VT_INPUT_HPF_HZ / (float)vt->sample_rate);
     for (int i = 0; i < VT_MAX_VOICES; i++) vt->latch_note[i] = -1;
@@ -416,11 +426,12 @@ int dsp_set_param(vt_t *vt, const char *key, const char *val)
     if (id < 0) return -1;
     const vt_param_def *d = &k_params[id];
 
-    /* Beauty does nothing in Morph, Double and Tape: a turn of its knob there
-     * is ignored so the stored amount waits unchanged for the next mode that
-     * uses it. A restored state or config still sets it (it may come before
-     * "mode" in the object). */
-    if (id == VT_P_BEAUTY && !vt->restoring && !vt_beauty_acts((int)vt->p[VT_P_MODE])) return 0;
+    /* A knob that does nothing in the current mode (vt_param_acts: Key, Scale,
+     * Retune, Glide, Beauty) ignores turns, so its stored value waits unchanged
+     * for the next mode that uses it. A restored state or config still sets it
+     * (it may come before "mode" in the object), and so does any write in the
+     * first second after load, in case the host restores a set key by key. */
+    if (!vt->restoring && vt->warm_samples >= vt->sample_rate && !vt_param_acts(id, (int)vt->p[VT_P_MODE])) return 0;
 
     if (d->type == VT_PTYPE_ENUM) {
         for (int i = 0; i < d->num_options; i++) {
@@ -467,14 +478,22 @@ int dsp_get_param(vt_t *vt, const char *key, char *buf, int buf_len)
     } else if (strcmp(key, "diag") == 0) {
         /* For checking a real mic on the device: input RMS (10 ms, max over
          * ~1 s), voice gate open share, Robot's own gate / AGC / leveller,
-         * output RMS (max over ~1 s), held notes. */
+         * output RMS (max over ~1 s), held notes, the MIDI channel listened
+         * to (1-16, 0 = omni) and how many other-channel messages were dropped. */
         const daft_t *d = &vt->daft;
         n = snprintf(buf, (size_t)buf_len,
-                     "in %.1f / floor %.1f dBFS, vgate %.0f%%, robot gate %.0f%%, agc %+.1f dB, lev %.2f, out %.1f dBFS, notes %d %d %d %d, latch %d %d %d %d, mode %d",
+                     "in %.1f / floor %.1f dBFS, vgate %.0f%%, robot gate %.0f%%, agc %+.1f dB, lev %.2f, out %.1f dBFS, notes %d %d %d %d, latch %d %d %d %d, mode %d, midi ch %d, foreign %u",
                      10.0 * log10(vt->dg_in_pk + 1e-12), 10.0 * log10(vt->dg_in_min + 1e-12), 100.0 * vt->dg_open, 100.0 * vt->dg_ropen,
                      20.0 * log10(d->agc_gain + 1e-9), d->lev_gain, 10.0 * log10(vt->dg_out_pk + 1e-12),
                      vt->voices[0].note, vt->voices[1].note, vt->voices[2].note, vt->voices[3].note,
-                     vt->latch_note[0], vt->latch_note[1], vt->latch_note[2], vt->latch_note[3], vt->run_mode);
+                     vt->latch_note[0], vt->latch_note[1], vt->latch_note[2], vt->latch_note[3], vt->run_mode,
+                     vt->midi_ch + 1, vt->midi_foreign);
+        /* the host's raw channel answer and the last note-ons (status/note/source) */
+        if (n >= 0 && n < buf_len) n += snprintf(buf + n, (size_t)(buf_len - n), ", recv %d, last", vt->midi_ch_raw);
+        for (int k = 0; k < 6 && k < vt->midi_log_n && n >= 0 && n < buf_len; k++) {
+            const int *e = vt->midi_log[(vt->midi_log_n - 1 - k) % 6];
+            n += snprintf(buf + n, (size_t)(buf_len - n), " %02x/%d/s%d", e[0], e[1], e[2]);
+        }
     } else if (strcmp(key, "auto") == 0) {                        /* the old switch, read-only view of Gate */
         n = snprintf(buf, (size_t)buf_len, "%s", (int)vt->p[VT_P_GATE] == 0 ? "On" : "Off");
     } else if (strcmp(key, "voices") == 0) {
@@ -683,12 +702,45 @@ void dsp_handle_midi(vt_t *vt, const uint8_t *msg, int len)
     int d1 = len > 1 ? msg[1] & 0x7F : 0;
     int d2 = len > 2 ? msg[2] & 0x7F : 0;
 
-    if (status == 0x90 && d2 > 0) { note_on(vt, d1, d2); vt->midi_note_ons++; }   /* any channel */
+    const int src = vt->midi_src;
+    vt->midi_src = -1;                                               /* this message only */
+    if (status == 0x90 && d2 > 0) {                                  /* diag: who sent it */
+        int *e = vt->midi_log[vt->midi_log_n++ % 6];
+        e[0] = msg[0]; e[1] = d1; e[2] = src;
+    }
+
+    /* Only the slot's own MIDI. The chain host also broadcasts every track's
+     * MIDI to every audio FX (Move's sequencer sends notes on muted tracks
+     * too, with MIDI Out on): taken, those played Robot's carrier and
+     * Chords/Prism voices. The slot's own notes come on their own path as
+     * well, so broadcasts are dropped whole; and where the host names the
+     * slot's channel (slot_recv_channel; it answers -2 for an FX on the
+     * device), other channels are too. Notes, CCs (panic included), pitch
+     * bend: all filtered. */
+    if (status >= 0x80 && status <= 0xE0 &&
+        (src == VT_MIDI_SOURCE_BROADCAST || (vt->midi_ch >= 0 && (msg[0] & 0x0F) != vt->midi_ch))) {
+        vt->midi_foreign++;
+        return;
+    }
+
+    if (status == 0x90 && d2 > 0) { note_on(vt, d1, d2); vt->midi_note_ons++; }
     else if (status == 0x80 || status == 0x90) note_off(vt, d1);
     else if (status == 0xB0 && (d1 == 120 || d1 == 123)) {            /* all sound/notes off */
         for (int i = 0; i < VT_MAX_VOICES; i++) vt->voices[i].note = -1;
         latch_clear(vt);                                              /* a panic releases a latch too */
     }
+}
+
+void dsp_set_midi_channel(vt_t *vt, int channel)
+{
+    if (!vt) return;
+    vt->midi_ch_raw = channel;
+    vt->midi_ch = channel >= 0 && channel <= 15 ? channel : -1;
+}
+
+void dsp_set_midi_source(vt_t *vt, int source)
+{
+    if (vt) vt->midi_src = source;
 }
 
 void dsp_set_bpm(vt_t *vt, float bpm)
@@ -910,11 +962,14 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
     } else {
         /* Every other mode runs on the tracker. The lead modes take a held pad
          * as the target note; Chords/Prism use the pads as harmony instead.
-         * Prism is a 0 ms hard snap whatever Retune says. */
+         * Prism is a 0 ms hard snap whatever Retune says. Snap at Beauty 0
+         * is instant (no slew at all, Retune and Glide aside): a sliding
+         * voice steps from semitone to semitone. */
         const int lead_override = (mode == VT_MODE_SNAP || mode == VT_MODE_MORPH || mode == VT_MODE_DOUBLE);
-        const float retune = mode == VT_MODE_PRISM ? 0.0f : vt->p[VT_P_RETUNE];
+        const int snap_instant = mode == VT_MODE_SNAP && beauty <= SNAP_INSTANT_BEAUTY;
+        const float retune = snap_instant ? -1.0f : mode == VT_MODE_PRISM ? 0.0f : vt->p[VT_P_RETUNE];
         cher_set_params(&vt->cher, root, scale, retune, gate_db,
-                        lead_override ? newest_held_note(vt) : -1, vt->p[VT_P_GLIDE]);
+                        lead_override ? newest_held_note(vt) : -1, snap_instant ? 0.0f : vt->p[VT_P_GLIDE]);
         cher_set_auto(&vt->cher, auto_on);
         /* Snap's char2 is tracking sensitivity: 0.5 = the default 0.65 clarity. */
         cher_set_clarity(&vt->cher, mode == VT_MODE_SNAP ? 0.9f - 0.5f * c2 : 0.65f);
