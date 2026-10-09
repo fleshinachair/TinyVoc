@@ -1217,7 +1217,7 @@ static void test_module_json_matches_params(void)
             const char *o = js_elem(cp, i);
             if (o && js_get(o, "viz")) declared++;
         }
-        CHECK(declared == 6);                                    /* the scope's 3, Freeze banner's 2, Latch's 1 */
+        CHECK(declared == 7);                                    /* the scope's 3, Freeze banner's 2, Latch's 1, Beauty's 1 */
         /* Nothing disappears: no param is conditionally hidden. Gate holds
          * Auto as its lowest setting, then -60..0 dB. */
         for (int i = 0; i < js_arr_len(cp); i++) CHECK(js_get(js_elem(cp, i), "visible_if") == NULL);
@@ -1230,6 +1230,9 @@ static void test_module_json_matches_params(void)
         const char *lt = js_elem(cp, VT_P_LATCH), *lv = lt ? js_get(lt, "viz") : NULL;
         CHECK(lv && js_str(js_get(lv, "kind"), s, sizeof s) && strcmp(s, "custom:tinyvoc_latch") == 0);
         CHECK(lv && js_get(lv, "extra_keys") && js_str(js_elem(js_get(lv, "extra_keys"), 0), s, sizeof s) && strcmp(s, "mode") == 0);
+        const char *bt = js_elem(cp, VT_P_BEAUTY), *bv = bt ? js_get(bt, "viz") : NULL;
+        CHECK(bv && js_str(js_get(bv, "kind"), s, sizeof s) && strcmp(s, "custom:tinyvoc_beauty") == 0);
+        CHECK(bv && js_get(bv, "extra_keys") && js_str(js_elem(js_get(bv, "extra_keys"), 0), s, sizeof s) && strcmp(s, "mode") == 0);
         char dummy[256];
         CHECK(dsp_get_param(w, "scope", dummy, sizeof dummy) > 0); /* the extra_key exists */
         dsp_cleanup(w);
@@ -1252,6 +1255,7 @@ static void test_module_json_matches_params(void)
             }
         } else {
             char in[64];
+            if (i == VT_P_BEAUTY) dsp_set_param(vt, "mode", "Snap");   /* the sweep left Mode on Tape, where Beauty is N/A */
             snprintf(in, sizeof in, "%g", (double)d->min - 1000.0);
             dsp_set_param(vt, d->key, in);
             CHECK(dsp_get_param(vt, d->key, got, sizeof got) > 0 && fabs(atof(got) - d->min) < 1e-6);
@@ -3714,6 +3718,47 @@ static void test_beauty(void)
             }
 }
 
+/* Beauty is dim ("N/A") in Morph, Double and Tape: the knob there changes
+ * nothing, the amount waits for the next mode that uses it, and a restored
+ * state still sets it whatever the mode. */
+static void test_beauty_na(void)
+{
+    static const char *const modes[VT_MODE_COUNT] = { "Snap", "Robot", "Chords", "Morph", "Prism", "Double", "Tape" };
+    static const int acts[VT_MODE_COUNT] = { 1, 1, 1, 0, 1, 0, 0 };
+    char buf[64];
+    for (int m = 0; m < VT_MODE_COUNT; m++) {
+        CHECK(vt_beauty_acts(m) == acts[m]);
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "mode", "Snap");
+        dsp_set_param(vt, "beauty", "0.3");
+        dsp_set_param(vt, "mode", modes[m]);
+        CHECK(dsp_set_param(vt, "beauty", "0.9") == 0);
+        dsp_get_param(vt, "beauty", buf, sizeof buf);
+        CHECK(fabs(atof(buf) - (acts[m] ? 0.9 : 0.3)) < 1e-3);      /* applied, or ignored */
+        dsp_set_param(vt, "mode", "Snap");                          /* the waiting amount is back */
+        dsp_get_param(vt, "beauty", buf, sizeof buf);
+        CHECK(fabs(atof(buf) - (acts[m] ? 0.9 : 0.3)) < 1e-3);
+
+        /* state / config restore sets it in any mode, in either key order */
+        dsp_set_param(vt, "state", "{\"beauty\":\"0.7\",\"mode\":\"Tape\"}");
+        dsp_get_param(vt, "beauty", buf, sizeof buf);
+        CHECK(fabs(atof(buf) - 0.7) < 1e-3);
+        dsp_set_param(vt, "state", "{\"mode\":\"Morph\",\"beauty\":\"0.2\"}");
+        dsp_get_param(vt, "beauty", buf, sizeof buf);
+        CHECK(fabs(atof(buf) - 0.2) < 1e-3);
+        dsp_set_param(vt, "beauty", "0.6");                         /* a knob turn again: Morph ignores it */
+        dsp_get_param(vt, "beauty", buf, sizeof buf);
+        CHECK(fabs(atof(buf) - 0.2) < 1e-3);
+        dsp_cleanup(vt);
+    }
+
+    vt_t *w = dsp_init(VT_SAMPLE_RATE);                             /* the widget gets mode as an extra key */
+    static char cp[16384];
+    CHECK(dsp_get_param(w, "chain_params", cp, sizeof cp) > 0);
+    CHECK(strstr(cp, "custom:tinyvoc_beauty") != NULL);
+    dsp_cleanup(w);
+}
+
 static void test_mode_switch_clean(void)
 {
     /* Cycling the modes on a sustained voice (a pad held) never cuts one
@@ -4236,6 +4281,7 @@ int main(void)
     RUN(test_tracker_octaves);
     RUN(test_pads_silent_without_voice);
     RUN(test_beauty);
+    RUN(test_beauty_na);
     RUN(test_mode_switch_clean);
     RUN(test_robot_phrase_onset);
     RUN(test_robot_carrier_register);

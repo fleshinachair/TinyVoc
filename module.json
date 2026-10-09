@@ -60,7 +60,7 @@
             {"key": "mod", "name": "Mod", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0},
             {"key": "reverb", "name": "Reverb", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0},
             {"key": "freeze_len", "name": "Freeze Len", "type": "enum", "options": ["Free", "1 Bar", "2 Bars", "4 Bars"], "default": 2, "viz": {"kind": "custom:tinyvoc_freeze", "group": "freeze", "role": "b", "extra_keys": ["scope"]}},
-            {"key": "beauty", "name": "Beauty", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5},
+            {"key": "beauty", "name": "Beauty", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5, "viz": {"kind": "custom:tinyvoc_beauty", "group": "beauty", "role": "a", "extra_keys": ["mode"]}},
             {"key": "latch", "name": "Latch", "type": "enum", "options": ["Off", "On"], "default": 0, "viz": {"kind": "custom:tinyvoc_latch", "group": "latch", "role": "a", "extra_keys": ["mode"]}},
             {"key": "freeze", "name": "Freeze", "type": "enum", "options": ["Off", "Rec", "Loop"], "default": 0, "viz": {"kind": "custom:tinyvoc_freeze", "group": "freeze", "role": "a", "extra_keys": ["scope"]}},
             {"key": "demo", "name": "Demo", "type": "enum", "options": ["Off", "On"], "default": 0},

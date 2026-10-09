@@ -70,6 +70,11 @@ typedef enum {
     VT_MODE_SNAP = 0, VT_MODE_ROBOT, VT_MODE_CHORDS, VT_MODE_MORPH,
     VT_MODE_PRISM, VT_MODE_DOUBLE, VT_MODE_TAPE, VT_MODE_COUNT   /* Talkbox removed 2026-10-09 */
 } vt_mode;
+/* Beauty polishes Snap, Robot, Chords and Prism; Morph, Double and Tape never read it. */
+static inline int vt_beauty_acts(int mode)
+{
+    return mode == VT_MODE_SNAP || mode == VT_MODE_ROBOT || mode == VT_MODE_CHORDS || mode == VT_MODE_PRISM;
+}
 typedef enum { VT_SCALE_CHROMATIC = 0, VT_SCALE_MAJOR, VT_SCALE_MINOR, VT_SCALE_PENTATONIC, VT_SCALE_DORIAN } vt_scale;
 typedef enum { VT_PTYPE_FLOAT = 0, VT_PTYPE_ENUM } vt_ptype;
 

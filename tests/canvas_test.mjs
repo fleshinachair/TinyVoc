@@ -256,5 +256,43 @@ try { drawLt(ltCtx(32), undefined); runLt({}); runLt({ mode: null, latch: "maybe
 catch (e) { threw = true; console.log("  threw:", e); }
 check(!threw, "latch: junk input never throws (no setPixel on the frame either)");
 
+// ---- Beauty (MORE knob 8): a percentage where it acts, a dimmed "N/A" elsewhere ----
+check(ov.widgetKinds["custom:tinyvoc_beauty"] && typeof ov.widgetKinds["custom:tinyvoc_beauty"].draw === "function",
+      "registers custom:tinyvoc_beauty");
+const drawBt = ov.widgetKinds["custom:tinyvoc_beauty"].draw;
+const runBt = (values, Wl = 32) => { const k = ltCtx(Wl); drawBt(k, { values, nowMs: 0, group: { keys: ["beauty"] } }); return k; };
+const BEAUTY_ACTS = ["Snap", "Robot", "Chords", "Prism"];
+let btOk = true;
+for (const Wl of [24, 32, 40])
+    for (let mi = 0; mi < MODES.length; mi++)
+        for (const [bv, pct] of [["0", "0%"], ["0.45", "45%"], [0.5, "50%"], ["1", "100%"]])
+            for (const modeVal of [MODES[mi], mi, String(mi)]) {
+                const k = runBt({ mode: modeVal, beauty: bv }, Wl);
+                const acts = BEAUTY_ACTS.includes(MODES[mi]);
+                const want = acts ? pct : "N/A";
+                const one = k.runs.length === 1 && k.runs[0].t === want;
+                const dim = acts ? k.cleared === 0 : k.cleared > 0;           // "N/A" is dimmed, a value is not
+                const centred = k.runs[0] && Math.abs((k.runs[0].x + k.runs[0].w / 2) - Wl / 2) <= 3;
+                const below = k.runs.every((r) => r.y + 8 <= 15 - 2);
+                if (!(one && dim && centred && below && k.outOfBounds === 0)) {
+                    btOk = false;
+                    console.log("  beauty widget", Wl, MODES[mi], JSON.stringify(modeVal), bv, JSON.stringify(k.runs), k.cleared, k.outOfBounds);
+                }
+            }
+check(btOk, "beauty: every mode x value x width shows a percentage (acts) or a dimmed N/A (Morph, Double, Tape), centred, in the frame");
+check(["Morph", "Double", "Tape"].every((m) => runBt({ mode: m, beauty: "0.8" }).runs[0].t === "N/A") &&
+      ["Snap", "Robot", "Chords", "Prism"].every((m) => runBt({ mode: m, beauty: "0.8" }).runs[0].t === "80%"),
+      "beauty: N/A in exactly Morph, Double and Tape");
+const btCentre = (k) => [k.runs[0].x + k.runs[0].w / 2, k.runs[0].y];       // text is centred, so compare the centre and the row
+const btNear = (a, b) => Math.abs(btCentre(a)[0] - btCentre(b)[0]) <= 1 && btCentre(a)[1] === btCentre(b)[1];
+check(btNear(runBt({ mode: "Robot", beauty: "0.5" }), runBt({ mode: "Tape", beauty: "0.5" })) &&
+      btNear(runBt({ mode: "Snap", beauty: "1" }), runBt({ mode: "Morph", beauty: "0" })), "beauty: same cell centre and row in every mode (nothing shifts)");
+check(runBt({ beauty: "0.3" }).runs[0].t === "30%" && runBt({ mode: "junk", beauty: "0.3" }).runs[0].t === "30%",
+      "beauty: mode not read yet shows the value");
+threw = false;
+try { drawBt(ltCtx(32), undefined); runBt({}); runBt({ mode: null, beauty: "x" }); runBt({ mode: "Tape", beauty: 7 }); drawBt({ width: 32, height: 15, print() {}, fillRect() {} }, { values: { mode: "Tape" } }); }
+catch (e) { threw = true; console.log("  threw:", e); }
+check(!threw, "beauty: junk input never throws (no setPixel on the frame either)");
+
 console.log(`canvas.js: ${checks} checks, ${failures} failed`);
 process.exit(failures ? 1 : 0);

@@ -176,6 +176,7 @@ struct vt {
     unsigned midi_note_ons;     /* note-ons received, for the screen / diagnostics */
     int   demo_active, demo_saved_mode;
     int   demo_pinned;            /* Mode turned during Demo: the tour stops on it */
+    int   restoring;              /* inside apply_state: Beauty is set whatever the mode */
     float bpm;
     double beat;                /* host transport, beats at the next block's start; < 0 = stopped */
 
@@ -415,6 +416,12 @@ int dsp_set_param(vt_t *vt, const char *key, const char *val)
     if (id < 0) return -1;
     const vt_param_def *d = &k_params[id];
 
+    /* Beauty does nothing in Morph, Double and Tape: a turn of its knob there
+     * is ignored so the stored amount waits unchanged for the next mode that
+     * uses it. A restored state or config still sets it (it may come before
+     * "mode" in the object). */
+    if (id == VT_P_BEAUTY && !vt->restoring && !vt_beauty_acts((int)vt->p[VT_P_MODE])) return 0;
+
     if (d->type == VT_PTYPE_ENUM) {
         for (int i = 0; i < d->num_options; i++) {
             if (strcmp(d->options[i], val) == 0) {
@@ -539,7 +546,17 @@ static int is_transient(const char *key)
 /* A set saved before Gate took in Auto has "auto" and a dB "gate". Its Auto
  * is applied after everything else, so the manual level is remembered either
  * way and Auto On wins. */
+static int apply_members(vt_t *vt, const char *json);
+
 static int apply_state(vt_t *vt, const char *json)
+{
+    vt->restoring = 1;
+    const int r = apply_members(vt, json);
+    vt->restoring = 0;
+    return r;
+}
+
+static int apply_members(vt_t *vt, const char *json)
 {
     const char *p = skip_ws(json);
     if (*p != '{') return -1;

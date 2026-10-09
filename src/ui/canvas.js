@@ -314,13 +314,41 @@
         ctx.print(x, ty, txt, on ? 0 : 1);
     }
 
+    /* custom:tinyvoc_beauty, MORE knob 8. Beauty polishes Snap, Robot, Chords
+     * and Prism: there the value as a percentage; in Morph, Double and Tape
+     * a dimmed "N/A" (every other pixel cleared). Same cell, name and knob in
+     * every mode; the DSP ignores turns where it does nothing. Until the mode
+     * has been read it shows the value. */
+    const BEAUTY_MODES = ["Snap", "Robot", "Chords", "Prism"];
+    function drawBeauty(ctx, payload) {
+        const values = (payload && payload.values) || {};
+        const W = ctx.width, H = ctx.height;
+        const tw = (s) => (typeof ctx.textWidth === "function" ? ctx.textWidth(s) : s.length * 6);
+        const ty = Math.max(0, Math.min(H - TEXT_H, Math.floor((H - TEXT_H - 3) / 2)));
+        const mode = optName(values.mode, MODES, null);
+        let txt, dim = false;
+        if (mode && BEAUTY_MODES.indexOf(mode) < 0) {
+            txt = "N/A"; dim = true;
+        } else {
+            const v = Number(values.beauty);
+            txt = (Number.isFinite(v) ? Math.round(Math.max(0, Math.min(1, v)) * 100) : 0) + "%";
+        }
+        const x = Math.max(0, Math.floor((W - tw(txt)) / 2));
+        ctx.print(x, ty, txt, 1);
+        if (dim && typeof ctx.setPixel === "function")
+            for (let y = ty; y < Math.min(H, ty + TEXT_H); y++)
+                for (let xx = x; xx < Math.min(W, x + tw(txt)); xx++)
+                    if ((xx + y) & 1) ctx.setPixel(xx, y, 0);
+    }
+
     globalThis.canvas_overlay = {
         widgetKinds: {
+            "custom:tinyvoc_beauty": { draw: drawBeauty, nominal: { w: 32, h: 15 } },
             "custom:tinyvoc_scope": { draw, nominal: { w: 96, h: 15 } },
             "custom:tinyvoc_freeze": { draw: drawFreeze, nominal: { w: 64, h: 15 } },
             "custom:tinyvoc_latch": { draw: drawLatch, nominal: { w: 32, h: 15 } },
         },
     };
     /* test seam (tests/canvas_test.mjs) */
-    globalThis.TINYVOC_SCOPE_FOR_TEST = { draw, drawFreeze, drawLatch, parse, loopPhase, recFill, noteName, st };
+    globalThis.TINYVOC_SCOPE_FOR_TEST = { draw, drawFreeze, drawLatch, drawBeauty, parse, loopPhase, recFill, noteName, st };
 })();
