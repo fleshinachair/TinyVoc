@@ -10,8 +10,8 @@
  * Source: band-limited sawtooth (glottal buzz) with spectral tilt plus a little
  * breath noise, through three vowel formant resonators.
  */
-#ifndef TINYVOC_DEMO_H
-#define TINYVOC_DEMO_H
+#ifndef TINYVOICE_DEMO_H
+#define TINYVOICE_DEMO_H
 
 #ifdef __cplusplus
 extern "C" {

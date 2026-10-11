@@ -7,8 +7,8 @@
  * Callers cap the threshold they derive from it, because a long steady note
  * looks exactly like a loud noise floor to this estimator.
  */
-#ifndef TINYVOC_FLOOR_H
-#define TINYVOC_FLOOR_H
+#ifndef TINYVOICE_FLOOR_H
+#define TINYVOICE_FLOOR_H
 
 #define VT_FLOOR_SLOTS 12
 

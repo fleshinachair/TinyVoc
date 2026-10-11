@@ -1,11 +1,11 @@
 {
-    "id": "tinyvoc",
-    "name": "TinyVoc",
-    "abbrev": "TVC",
-    "version": "0.9.0",
-    "description": "7-mode vocal processor: Snap, Robot, Chords, Morph, Prism, Double, Tape",
+    "id": "tinyvoice",
+    "name": "TinyVoice",
+    "abbrev": "TVO",
+    "version": "1.0.0",
+    "description": "Vocal processor: vocoder and carrier modes (Robot, Snap, Chords, Prism, Tape, Nightcall) and voice transformers (Scream, Dalek, HardTune, Harmony, Walkie)",
     "author": "Mat Taylor",
-    "dsp": "tinyvoc.so",
+    "dsp": "tinyvoice.so",
     "api_version": 2,
     "component_type": "audio_fx",
     "capabilities": {
@@ -17,56 +17,64 @@
             "modes": null,
             "levels": {
                 "root": {
-                    "name": "TinyVoc",
-                    "knobs": ["mode", "key", "scale", "retune", "pitch", "target", "cents", "mix"],
+                    "name": "TinyVoice",
+                    "knobs": ["mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain"],
                     "params": [
-                        {"level": "TUNE", "label": "Tune"},
+                        {"level": "VOICE", "label": "Voice"},
+                        {"level": "PITCH", "label": "Pitch"},
                         {"level": "SPACE", "label": "Space"},
                         {"level": "MORE", "label": "More"}
                     ]
                 },
-                "TUNE": {
-                    "label": "Tune",
-                    "knobs": ["mode", "key", "scale", "retune", "pitch", "target", "cents", "mix"],
-                    "params": ["mode", "key", "scale", "retune", "pitch", "target", "cents", "mix"]
+                "VOICE": {
+                    "label": "Voice",
+                    "knobs": ["mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain"],
+                    "params": ["mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain"]
+                },
+                "PITCH": {
+                    "label": "Pitch",
+                    "knobs": ["key", "scale", "retune", "glide", "pitch", "target", "cents", "beauty"],
+                    "params": ["key", "scale", "retune", "glide", "pitch", "target", "cents", "beauty"]
                 },
                 "SPACE": {
                     "label": "Space",
-                    "knobs": ["char1", "char2", "delay", "reverb", "spread", "demo", "freeze", "freeze_len"],
-                    "params": ["char1", "char2", "delay", "reverb", "spread", "demo", "freeze", "freeze_len"]
+                    "knobs": ["delay", "feedback", "reverb", "spread", "tone", "demo", "freeze", "freeze_len"],
+                    "params": ["delay", "feedback", "reverb", "spread", "tone", "demo", "freeze", "freeze_len"]
                 },
                 "MORE": {
                     "label": "More",
-                    "knobs": ["gain", "feedback", "tone", "glide", "mod", "gate", "latch", "beauty"],
-                    "params": ["gain", "feedback", "tone", "glide", "mod", "gate", "latch", "beauty"]
+                    "knobs": ["gate", "latch"],
+                    "params": ["gate", "latch"]
                 }
             }
         },
         "chain_params": [
-            {"key": "mode", "name": "Mode", "type": "enum", "options": ["Snap", "Robot", "Chords", "Morph", "Prism", "Double", "Tape"], "default": 0},
-            {"key": "key", "name": "Key", "type": "enum", "options": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"], "default": 0, "viz": {"kind": "custom:tinyvoc_key", "group": "key", "role": "a", "extra_keys": ["mode"]}},
-            {"key": "scale", "name": "Scale", "type": "enum", "options": ["Chromatic", "Major", "Minor", "Pentatonic", "Dorian"], "default": 0, "viz": {"kind": "custom:tinyvoc_scale", "group": "scale", "role": "a", "extra_keys": ["mode"]}},
-            {"key": "retune", "name": "Retune", "type": "float", "min": 0, "max": 500, "step": 1, "unit": "ms", "default": 0, "viz": {"kind": "custom:tinyvoc_retune", "group": "retune", "role": "a", "extra_keys": ["mode"]}},
+            {"key": "mode", "name": "Mode", "type": "enum", "options": ["Robot", "Snap", "Chords", "Prism", "Tape", "Nightcall", "Scream", "Dalek", "HardTune", "Harmony", "Walkie", "Morph", "Double"], "default": 1},
+            {"key": "key", "name": "Key", "type": "enum", "options": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"], "default": 0, "viz": {"kind": "custom:tinyvoice_key", "group": "key", "role": "a", "extra_keys": ["mode"]}},
+            {"key": "scale", "name": "Scale", "type": "enum", "options": ["Chromatic", "Major", "Minor", "Pentatonic", "Dorian"], "default": 0, "viz": {"kind": "custom:tinyvoice_scale", "group": "scale", "role": "a", "extra_keys": ["mode"]}},
+            {"key": "retune", "name": "Retune", "type": "float", "min": 0, "max": 500, "step": 1, "unit": "ms", "default": 0, "viz": {"kind": "custom:tinyvoice_retune", "group": "retune", "role": "a", "extra_keys": ["mode"]}},
             {"key": "char1", "name": "Char 1", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5},
             {"key": "char2", "name": "Char 2", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5},
             {"key": "gate", "name": "Gate", "type": "enum", "options": ["Auto", "-60 dB", "-57 dB", "-54 dB", "-51 dB", "-48 dB", "-45 dB", "-42 dB", "-39 dB", "-36 dB", "-33 dB", "-30 dB", "-27 dB", "-24 dB", "-21 dB", "-18 dB", "-15 dB", "-12 dB", "-9 dB", "-6 dB", "-3 dB", "0 dB"], "default": 0},
             {"key": "mix", "name": "Mix", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 1},
-            {"key": "gain", "name": "Gain", "type": "float", "min": -12, "max": 12, "step": 0.5, "unit": "dB", "default": 0},
+            {"key": "gain", "name": "Level", "type": "float", "min": -12, "max": 12, "step": 0.5, "unit": "dB", "default": 0},
             {"key": "delay", "name": "Delay", "type": "float", "min": 0, "max": 1000, "step": 1, "unit": "ms", "default": 0},
             {"key": "feedback", "name": "Feedback", "type": "float", "min": 0, "max": 0.95, "step": 0.01, "unit": "%", "default": 0.3},
             {"key": "spread", "name": "Spread", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.25},
             {"key": "tone", "name": "Tone", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 1},
-            {"key": "glide", "name": "Glide", "type": "float", "min": 0, "max": 500, "step": 1, "unit": "ms", "default": 0, "viz": {"kind": "custom:tinyvoc_glide", "group": "glide", "role": "a", "extra_keys": ["mode"]}},
+            {"key": "glide", "name": "Glide", "type": "float", "min": 0, "max": 500, "step": 1, "unit": "ms", "default": 0, "viz": {"kind": "custom:tinyvoice_glide", "group": "glide", "role": "a", "extra_keys": ["mode"]}},
             {"key": "mod", "name": "Mod", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0},
             {"key": "reverb", "name": "Reverb", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0},
-            {"key": "freeze_len", "name": "Freeze Len", "type": "enum", "options": ["Free", "1 Bar", "2 Bars", "4 Bars"], "default": 2, "viz": {"kind": "custom:tinyvoc_freeze", "group": "freeze", "role": "b", "extra_keys": ["scope"]}},
-            {"key": "beauty", "name": "Beauty", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5, "viz": {"kind": "custom:tinyvoc_beauty", "group": "beauty", "role": "a", "extra_keys": ["mode"]}},
-            {"key": "latch", "name": "Latch", "type": "enum", "options": ["Off", "On"], "default": 0, "viz": {"kind": "custom:tinyvoc_latch", "group": "latch", "role": "a", "extra_keys": ["mode"]}},
-            {"key": "freeze", "name": "Freeze", "type": "enum", "options": ["Off", "Rec", "Loop"], "default": 0, "viz": {"kind": "custom:tinyvoc_freeze", "group": "freeze", "role": "a", "extra_keys": ["scope"]}},
+            {"key": "freeze_len", "name": "Freeze Len", "type": "enum", "options": ["Free", "1 Bar", "2 Bars", "4 Bars"], "default": 2, "viz": {"kind": "custom:tinyvoice_freeze", "group": "freeze", "role": "b", "extra_keys": ["scope"]}},
+            {"key": "beauty", "name": "Beauty", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5, "viz": {"kind": "custom:tinyvoice_beauty", "group": "beauty", "role": "a", "extra_keys": ["mode"]}},
+            {"key": "latch", "name": "Latch", "type": "enum", "options": ["Off", "On"], "default": 0, "viz": {"kind": "custom:tinyvoice_latch", "group": "latch", "role": "a", "extra_keys": ["mode"]}},
+            {"key": "char4", "name": "Char 4", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5},
+            {"key": "char5", "name": "Char 5", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5},
+            {"key": "freeze", "name": "Freeze", "type": "enum", "options": ["Off", "Rec", "Loop"], "default": 0, "viz": {"kind": "custom:tinyvoice_freeze", "group": "freeze", "role": "a", "extra_keys": ["scope"]}},
             {"key": "demo", "name": "Demo", "type": "enum", "options": ["Off", "On"], "default": 0},
-            {"key": "pitch", "name": "Pitch", "type": "float", "min": 0, "max": 2000, "step": 0.1, "unit": "Hz", "default": 0, "access": "read", "viz": {"kind": "custom:tinyvoc_scope", "group": "scope", "role": "a", "extra_keys": ["scope"]}},
-            {"key": "target", "name": "Target", "type": "float", "min": 0, "max": 2000, "step": 0.1, "unit": "Hz", "default": 0, "access": "read", "viz": {"kind": "custom:tinyvoc_scope", "group": "scope", "role": "b", "extra_keys": ["scope"]}},
-            {"key": "cents", "name": "Cents", "type": "float", "min": -50, "max": 50, "step": 1, "unit": "ct", "default": 0, "access": "read", "viz": {"kind": "custom:tinyvoc_scope", "group": "scope", "role": "c", "extra_keys": ["scope"]}}
+            {"key": "pitch", "name": "Pitch", "type": "float", "min": 0, "max": 2000, "step": 0.1, "unit": "Hz", "default": 0, "access": "read", "viz": {"kind": "custom:tinyvoice_scope", "group": "scope", "role": "a", "extra_keys": ["scope"]}},
+            {"key": "target", "name": "Target", "type": "float", "min": 0, "max": 2000, "step": 0.1, "unit": "Hz", "default": 0, "access": "read", "viz": {"kind": "custom:tinyvoice_scope", "group": "scope", "role": "b", "extra_keys": ["scope"]}},
+            {"key": "cents", "name": "Cents", "type": "float", "min": -50, "max": 50, "step": 1, "unit": "ct", "default": 0, "access": "read", "viz": {"kind": "custom:tinyvoice_scope", "group": "scope", "role": "c", "extra_keys": ["scope"]}}
         ]
     }
 }

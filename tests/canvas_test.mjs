@@ -36,9 +36,9 @@ const litRow = (ctx, y) => { let n = 0; for (let i = 0; i < W; i++) n += ctx.px[
 const litCol = (ctx, x, y0, y1) => { let n = 0; for (let j = y0; j <= y1; j++) n += ctx.px[j * W + x]; return n; };
 
 const ov = globalThis.canvas_overlay;
-check(ov && ov.widgetKinds && typeof ov.widgetKinds["custom:tinyvoc_scope"].draw === "function", "registers custom:tinyvoc_scope");
-const draw = ov.widgetKinds["custom:tinyvoc_scope"].draw;
-const T = globalThis.TINYVOC_SCOPE_FOR_TEST;
+check(ov && ov.widgetKinds && typeof ov.widgetKinds["custom:tinyvoice_scope"].draw === "function", "registers custom:tinyvoice_scope");
+const draw = ov.widgetKinds["custom:tinyvoice_scope"].draw;
+const T = globalThis.TINYVOICE_SCOPE_FOR_TEST;
 const scope = (mode, frozen, phase, loopS, f0, tgt, cents, bands) =>
     ["S", mode, frozen, phase, loopS, f0, tgt, cents, ...(bands || new Array(16).fill(0))].join(",");
 const run = (values, nowMs) => { const ctx = mockCtx(); draw(ctx, { values, nowMs, group: { keys: ["retune"] } }); return ctx; };
@@ -47,8 +47,8 @@ const run = (values, nowMs) => { const ctx = mockCtx(); draw(ctx, { values, nowM
 check(T.noteName(440) === "A4" && T.noteName(261.63) === "C4" && T.noteName(0) === "--", "note names");
 
 // pitch view: target note, needle off-centre for +20 cents
-let c = run({ scope: scope(0, 0, 0, 0, 445, 440, 20) }, 1000);
-c = run({ scope: scope(0, 0, 0, 0, 445, 440, 20) }, 2000);       // let the needle settle
+let c = run({ scope: scope(1, 0, 0, 0, 445, 440, 20) }, 1000);
+c = run({ scope: scope(1, 0, 0, 0, 445, 440, 20) }, 2000);       // let the needle settle
 check(c.texts.includes("A4"), "pitch: target note shown");
 check(c.outOfBounds === 0, "pitch: stays inside the frame");
 const mid = Math.round(((18 + 4) + (W - 1)) / 2);
@@ -58,24 +58,30 @@ for (let x = 22; x < mid - 2; x++) left += litCol(c, x, 0, 3);
 check(right > 0 && left === 0, "pitch: sharp voice puts the needle right of centre");
 
 // unvoiced: "--", no needle
-c = run({ scope: scope(0, 0, 0, 0, 0, 0, 0) }, 3000);
+c = run({ scope: scope(1, 0, 0, 0, 0, 0, 0) }, 3000);
 check(c.texts.includes("--"), "pitch: unvoiced shows --");
 
 // robot bars: a peak in bands 7-8, nothing drawn outside the frame
 const bands = new Array(16).fill(0); bands[7] = 255; bands[8] = 200;
-c = run({ scope: scope(1, 0, 0, 0, 0, 0, 0, bands) }, 4000);
+c = run({ scope: scope(0, 0, 0, 0, 0, 0, 0, bands) }, 4000);
 check(c.outOfBounds === 0, "bars: inside the frame");
 const step = Math.floor(W / 16);
 check(litCol(c, 7 * step + 1, 0, H - 1) === H, "bars: band 7 full height");
 check(litCol(c, 2 * step + 1, 0, H - 1) === 1, "bars: quiet band shows only its floor tick");
 
+// Nightcall is a vocoder too: the same bars (mode 5); a pitch mode (Scream, 6) is not
+c = run({ scope: scope(5, 0, 0, 0, 0, 0, 0, bands) }, 4050);
+check(litCol(c, 7 * step + 1, 0, H - 1) === H, "bars: Nightcall draws the analysis bands too");
+c = run({ scope: scope(6, 0, 0, 0, 220, 220, 0, bands) }, 4060);
+check(c.texts.includes("A3"), "pitch: Scream (a tracker mode) draws the pitch view, not bars");
+
 // bars fall smoothly instead of vanishing
-c = run({ scope: scope(1, 0, 0, 0, 0, 0, 0, new Array(16).fill(0)) }, 4100);
+c = run({ scope: scope(0, 0, 0, 0, 0, 0, 0, new Array(16).fill(0)) }, 4100);
 const h7 = litCol(c, 7 * step + 1, 0, H - 1);
 check(h7 > 1 && h7 < H, "bars: a silenced band decays over time, not instantly");
 
 // freeze: dotted loop line plus a playhead that moves on between reads
-const fz = scope(0, 1, 0.25, 2.0, 220, 220, 0);
+const fz = scope(1, 1, 0.25, 2.0, 220, 220, 0);
 let c1 = run({ scope: fz }, 10000);
 let c2 = run({ scope: fz }, 10500);                                // same reading, 0.5 s later
 const head = (ctx) => { for (let x = W - 1; x >= 0; x--) if (ctx.px[(H - 3) * W + x]) return x; return -1; };
@@ -85,7 +91,7 @@ check(Math.abs(moved - Math.round(0.25 * (W - 1))) <= 2, `freeze: playhead runs 
 check(c1.outOfBounds === 0 && c2.outOfBounds === 0, "freeze: inside the frame");
 
 // recording: a bar that fills with the buffer, growing on between reads
-const rec = scope(0, 2, 0.25, 4.0, 220, 220, 0);                  // a quarter full after 4 s
+const rec = scope(1, 2, 0.25, 4.0, 220, 220, 0);                  // a quarter full after 4 s
 c1 = run({ scope: rec }, 20250);                                   // (times with the blinking head off)
 c2 = run({ scope: rec }, 21250);                                   // 1 s later, no new read
 const recEnd = (ctx) => { for (let x = W - 1; x >= 0; x--) if (ctx.px[(H - 1) * W + x]) return x; return -1; };
@@ -96,20 +102,20 @@ check(recEnd(c3) >= recEnd(c1), "rec: blinking head at the end of the bar");
 check(c1.outOfBounds === 0 && c2.outOfBounds === 0, "rec: inside the frame");
 
 // freeze tags top right: ARM (blinking, while waiting for the downbeat), REC, LOOP
-c = run({ scope: scope(0, 3, 0, 0, 220, 220, 0) }, 30000);         // 30000/250 = 120: even, shown
+c = run({ scope: scope(1, 3, 0, 0, 220, 220, 0) }, 30000);         // 30000/250 = 120: even, shown
 check(c.texts.includes("ARM"), "freeze tag: ARM while armed");
-c = run({ scope: scope(0, 3, 0, 0, 220, 220, 0) }, 30250);         // odd: blinked off
+c = run({ scope: scope(1, 3, 0, 0, 220, 220, 0) }, 30250);         // odd: blinked off
 check(!c.texts.includes("ARM"), "freeze tag: ARM blinks");
-c = run({ scope: scope(0, 2, 0.25, 4.0, 220, 220, 0) }, 31000);
+c = run({ scope: scope(1, 2, 0.25, 4.0, 220, 220, 0) }, 31000);
 check(c.texts.includes("REC") && !c.texts.includes("ARM"), "freeze tag: REC while recording");
-c = run({ scope: scope(1, 1, 0.5, 2.0, 0, 0, 0, new Array(16).fill(100)) }, 32000);
+c = run({ scope: scope(0, 1, 0.5, 2.0, 0, 0, 0, new Array(16).fill(100)) }, 32000);
 check(c.texts.includes("LOOP"), "freeze tag: LOOP while looping (Robot bars too)");
 check(c.outOfBounds === 0, "freeze tag: inside the frame");
 
 // ---- Freeze banner (SPACE knobs 7-8) ----
-check(ov.widgetKinds["custom:tinyvoc_freeze"] && typeof ov.widgetKinds["custom:tinyvoc_freeze"].draw === "function",
-      "registers custom:tinyvoc_freeze");
-const drawFz = ov.widgetKinds["custom:tinyvoc_freeze"].draw;
+check(ov.widgetKinds["custom:tinyvoice_freeze"] && typeof ov.widgetKinds["custom:tinyvoice_freeze"].draw === "function",
+      "registers custom:tinyvoice_freeze");
+const drawFz = ov.widgetKinds["custom:tinyvoice_freeze"].draw;
 const fzScope = (frozen, phase, loopS, beat) =>
     ["S", 0, frozen, phase, loopS, 220, 220, 0, ...new Array(16).fill(0), 0, -1, 0, beat].join(",");
 /* a two-cell frame that records where every string lands (6 px glyphs, 8 px tall) */
@@ -171,7 +177,7 @@ for (const Wf of [50, 60, 64, 120])
 check(clean, "banner: every state fits 50-120 px frames without collisions");
 
 // not frozen: no loop line
-c = run({ scope: scope(0, 0, 0, 0, 220, 220, 0) }, 11000);
+c = run({ scope: scope(1, 0, 0, 0, 220, 220, 0) }, 11000);
 check(litRow(c, H - 1) === 0 || litRow(c, H - 1) < 4, "live: no loop line");
 
 // junk in: no throw, keeps the last good picture's state
@@ -186,7 +192,7 @@ try {
 check(!threw, "junk input never throws");
 
 // Auto gain, pad and note-on indicators (the three optional trailing fields)
-const scope2 = (agc, pad, ons) => scope(0, 0, 0, 0, 220, 220, 0) + `,${agc},${pad},${ons}`;
+const scope2 = (agc, pad, ons) => scope(1, 0, 0, 0, 220, 220, 0) + `,${agc},${pad},${ons}`;
 c = run({ scope: scope2(18.2, -1, 5) }, 20000);
 check(c.texts.includes("+18"), "auto: input boost shown as +18");
 check(c.outOfBounds === 0, "auto: inside the frame");
@@ -200,13 +206,13 @@ check(c.px[(H - 2) * W + (W - 1)] === 1, "pad: note-on flashes the activity dot"
 c = run({ scope: scope2(0, 64, 6) }, 21000);                          // no new note-on since
 check(c.px[(H - 2) * W + (W - 1)] === 0, "pad: the dot goes out again");
 
-c = run({ scope: scope(1, 0, 0, 0, 0, 0, 0, new Array(16).fill(255)) + ",12,-1,6" }, 22000);
+c = run({ scope: scope(0, 0, 0, 0, 0, 0, 0, new Array(16).fill(255)) + ",12,-1,6" }, 22000);
 check(c.texts.includes("+12") && c.outOfBounds === 0, "auto readout over the bars, inside the frame");
 
 // ---- Latch (MORE knob 7): On / Off where it acts, a dimmed "---" elsewhere ----
-check(ov.widgetKinds["custom:tinyvoc_latch"] && typeof ov.widgetKinds["custom:tinyvoc_latch"].draw === "function",
-      "registers custom:tinyvoc_latch");
-const drawLt = ov.widgetKinds["custom:tinyvoc_latch"].draw;
+check(ov.widgetKinds["custom:tinyvoice_latch"] && typeof ov.widgetKinds["custom:tinyvoice_latch"].draw === "function",
+      "registers custom:tinyvoice_latch");
+const drawLt = ov.widgetKinds["custom:tinyvoice_latch"].draw;
 function ltCtx(Wl) {
     const Hl = 15, px = new Uint8Array(Wl * Hl), runs = [];
     let oob = 0, cleared = 0;
@@ -224,8 +230,8 @@ function ltCtx(Wl) {
     };
 }
 const runLt = (values, Wl = 32) => { const k = ltCtx(Wl); drawLt(k, { values, nowMs: 0, group: { keys: ["latch"] } }); return k; };
-const MODES = ["Snap", "Robot", "Chords", "Morph", "Prism", "Double", "Tape"];
-const ACTS = ["Robot", "Chords", "Prism"];
+const MODES = ["Robot", "Snap", "Chords", "Prism", "Tape", "Nightcall", "Scream", "Dalek", "HardTune", "Harmony", "Walkie", "Morph", "Double"];
+const ACTS = ["Robot", "Chords", "Prism", "Nightcall", "Harmony"];
 let ltOk = true;
 for (const Wl of [24, 32, 40])
     for (let mi = 0; mi < MODES.length; mi++)
@@ -260,17 +266,17 @@ check(!threw, "latch: junk input never throws (no setPixel on the frame either)"
 // Where a knob acts it shows its value; where it doesn't, a dimmed "N/A". The expected
 // table below is the same one test_main.c checks against vt_param_acts in dsp.h.
 const EXPECT = {
-    key:    { acts: ["Snap", "Robot", "Chords", "Morph", "Prism", "Double"],
+    key:    { acts: ["Robot", "Snap", "Chords", "Prism", "Nightcall", "HardTune", "Morph", "Double"],
               vals: [["C", "C"], ["F#", "F#"], [2, "D"], ["11", "B"]] },
-    scale:  { acts: ["Snap", "Chords", "Morph", "Prism", "Double"],
+    scale:  { acts: ["Snap", "Chords", "Prism", "HardTune", "Morph", "Double"],
               vals: [["Chromatic", "Chr"], ["Major", "Maj"], [2, "Min"], ["Pentatonic", "Pen"], [4, "Dor"]] },
     retune: { acts: ["Snap", "Chords", "Morph", "Double"], vals: [["0", "0"], ["120", "120"], [500, "500"]] },
-    glide:  { acts: ["Snap", "Robot", "Chords", "Morph", "Prism", "Double"], vals: [["0", "0"], ["37.4", "37"], ["500", "500"]] },
-    beauty: { acts: ["Snap", "Robot", "Chords", "Prism"], vals: [["0", "0%"], ["0.45", "45%"], [0.5, "50%"], ["1", "100%"]] },
+    glide:  { acts: ["Robot", "Snap", "Chords", "Prism", "Nightcall", "HardTune", "Morph", "Double"], vals: [["0", "0"], ["37.4", "37"], ["500", "500"]] },
+    beauty: { acts: ["Robot", "Snap", "Chords", "Prism"], vals: [["0", "0%"], ["0.45", "45%"], [0.5, "50%"], ["1", "100%"]] },
 };
 let gtOk = true;
 for (const [key, ex] of Object.entries(EXPECT)) {
-    const kind = "custom:tinyvoc_" + key;
+    const kind = "custom:tinyvoice_" + key;
     check(ov.widgetKinds[kind] && typeof ov.widgetKinds[kind].draw === "function", "registers " + kind);
     const drawG = ov.widgetKinds[kind].draw;
     const runG = (values, Wl = 32) => { const k = ltCtx(Wl); drawG(k, { values, nowMs: 0, group: { keys: [key] } }); return k; };

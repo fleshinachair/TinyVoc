@@ -7,8 +7,8 @@
  * ~0.8 s at the bottom of the range to ~3 s at the top). Fixed-size state,
  * no allocation, flushes denormals.
  */
-#ifndef TINYVOC_VERB_H
-#define TINYVOC_VERB_H
+#ifndef TINYVOICE_VERB_H
+#define TINYVOICE_VERB_H
 
 #ifdef __cplusplus
 extern "C" {

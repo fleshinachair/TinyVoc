@@ -31,8 +31,8 @@
  * Fixed-size 16-bit buffer (sized for 48 kHz, ~1.5 MB); embedded in vt_t, no
  * allocation after init.
  */
-#ifndef TINYVOC_FREEZE_H
-#define TINYVOC_FREEZE_H
+#ifndef TINYVOICE_FREEZE_H
+#define TINYVOICE_FREEZE_H
 
 #include <stdint.h>
 

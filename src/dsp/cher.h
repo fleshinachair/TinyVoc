@@ -6,8 +6,8 @@
  * Detection runs on a 2x-decimated copy of the input (cheap, <=1 kHz is all a
  * voice needs) once every CHER_HOP input samples.
  */
-#ifndef TINYVOC_CHER_H
-#define TINYVOC_CHER_H
+#ifndef TINYVOICE_CHER_H
+#define TINYVOICE_CHER_H
 
 #include "vt_floor.h"
 

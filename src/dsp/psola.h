@@ -13,8 +13,8 @@
  *
  * Fixed-size state; several voices can share one tracker (Prism, Double).
  */
-#ifndef TINYVOC_PSOLA_H
-#define TINYVOC_PSOLA_H
+#ifndef TINYVOICE_PSOLA_H
+#define TINYVOICE_PSOLA_H
 
 #include "cher.h"
 

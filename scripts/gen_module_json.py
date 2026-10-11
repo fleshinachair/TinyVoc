@@ -1,6 +1,7 @@
-"""Regenerate TinyVoc's module.json AND src/dsp/module_meta.h from one table:
-19 params on three pages (TUNE, SPACE, MORE), plus three read-only readouts
-(pitch, target, cents) that carry the OLED scope on TUNE knobs 5-7.
+"""Regenerate TinyVoice's module.json AND src/dsp/module_meta.h from one table:
+21 params on four pages (VOICE, PITCH, SPACE, MORE), plus three read-only
+readouts (pitch, target, cents) that carry the OLED scope on PITCH knobs 5-7.
+VOICE is the home page: Mode, five contextual knobs, Mix, Level.
 
     python scripts/gen_module_json.py [module.json] [src/dsp/module_meta.h]
 
@@ -10,8 +11,8 @@ host's own fallback re-serialises chain_params from its parsed table and drops
 `viz`, so a custom widget (canvas.js) only mounts when the module answers
 itself, as tinyk, hank and monksynth do.
 
-The served chain_params names char1 / char2 / mod per mode: the header's copy
-has @1@ @2@ @3@ in their "name" fields, which dsp.c fills from its
+The served chain_params names char1 / char2 / mod / char4 / char5 per mode: the
+header's copy has @1@ .. @5@ in their "name" fields, which dsp.c fills from its
 k_macro_names table. module.json keeps the generic names.
 
 Order of PARAMS must match vt_param_id / k_params in src/dsp/dsp.c; the
@@ -31,8 +32,13 @@ def flt(key, name, lo, hi, step, default, unit=None):
     p["default"] = default
     return p
 
+# The vocoder and carrier modes first, then the voice transformers; Morph and
+# Double (the older PSOLA modes) after the roster. Same order as vt_mode in dsp.h.
+MODES = ["Robot", "Snap", "Chords", "Prism", "Tape", "Nightcall",
+         "Scream", "Dalek", "HardTune", "Harmony", "Walkie", "Morph", "Double"]
+
 PARAMS = [
-    enum("mode", "Mode", ["Snap", "Robot", "Chords", "Morph", "Prism", "Double", "Tape"], 0),
+    enum("mode", "Mode", MODES, 1),
     enum("key", "Key", KEYS, 0),
     enum("scale", "Scale", ["Chromatic", "Major", "Minor", "Pentatonic", "Dorian"], 0),
     flt("retune", "Retune", 0, 500, 1, 0, "ms"),
@@ -42,7 +48,7 @@ PARAMS = [
     # threshold -60..0 dB in 3 dB steps, which is Auto Off. Nothing hides any more.
     enum("gate", "Gate", ["Auto"] + ["%d dB" % db for db in range(-60, 1, 3)], 0),   # 3 dB steps
     flt("mix", "Mix", 0, 1, 0.01, 1, "%"),
-    flt("gain", "Gain", -12, 12, 0.5, 0, "dB"),
+    flt("gain", "Level", -12, 12, 0.5, 0, "dB"),
     flt("delay", "Delay", 0, 1000, 1, 0, "ms"),
     flt("feedback", "Feedback", 0, 0.95, 0.01, 0.3, "%"),
     flt("spread", "Spread", 0, 1, 0.01, 0.25, "%"),
@@ -52,14 +58,16 @@ PARAMS = [
     flt("reverb", "Reverb", 0, 1, 0.01, 0, "%"),
     enum("freeze_len", "Freeze Len", ["Free", "1 Bar", "2 Bars", "4 Bars"], 2),   # Rec stops itself after N bars
     flt("beauty", "Beauty", 0, 1, 0.01, 0.5, "%"),          # per-mode polish: stereo, detune, air, warmth
-    enum("latch", "Latch", ["Off", "On"], 0),               # pad chord holds after release (Robot, Chords, Prism)
+    enum("latch", "Latch", ["Off", "On"], 0),               # pad chord holds after release (Robot, Chords, Prism, Nightcall, Harmony)
+    flt("char4", "Char 4", 0, 1, 0.01, 0.5, "%"),           # macros 4 and 5: per mode a new control, or an alias of an old param
+    flt("char5", "Char 5", 0, 1, 0.01, 0.5, "%"),
     # performance toggles (knobs on SPACE; not saved in "state")
     enum("freeze", "Freeze", ["Off", "Rec", "Loop"], 0),       # punch-in looper (src/dsp/freeze.h)
     enum("demo", "Demo", ["Off", "On"], 0),
 ]
 
 # Read-only readouts the DSP serves (not params: never set, never saved).
-# They sit under the OLED scope on TUNE knobs 5-7, so turning those knobs
+# They sit under the OLED scope on PITCH knobs 5-7, so turning those knobs
 # does nothing, and their names label the cells under the picture.
 def readout(key, name, lo, hi, step, unit):
     r = flt(key, name, lo, hi, step, 0, unit)
@@ -72,33 +80,33 @@ READOUTS = [
     readout("cents", "Cents", -50, 50, 1, "ct"),
 ]
 for role, r in zip(["a", "b", "c"], READOUTS):
-    r["viz"] = {"kind": "custom:tinyvoc_scope", "group": "scope", "role": role, "extra_keys": ["scope"]}
+    r["viz"] = {"kind": "custom:tinyvoice_scope", "group": "scope", "role": role, "extra_keys": ["scope"]}
 
 # The Freeze banner spans SPACE knobs 7-8 (Freeze, Freeze Len): Off / ARMED /
 # REC / LOOP, the take length, and whether a transport clock is seen. The knobs
 # under it still turn; their values show in the header while touched.
 for role, k in zip(["a", "b"], ["freeze", "freeze_len"]):
     p = next(x for x in PARAMS if x["key"] == k)
-    p["viz"] = {"kind": "custom:tinyvoc_freeze", "group": "freeze", "role": role, "extra_keys": ["scope"]}
+    p["viz"] = {"kind": "custom:tinyvoice_freeze", "group": "freeze", "role": role, "extra_keys": ["scope"]}
 
-# Latch (MORE knob 7) draws its own value: On / Off in the modes it acts in
-# (Robot, Chords, Prism), a dimmed "---" in the others. Same cell, same knob.
-next(x for x in PARAMS if x["key"] == "latch")["viz"] = {"kind": "custom:tinyvoc_latch", "group": "latch", "role": "a", "extra_keys": ["mode"]}
+# Latch (MORE knob 2) draws its own value: On / Off in the modes it acts in
+# (Robot, Chords, Prism, Nightcall, Harmony), a dimmed "---" in the others.
+next(x for x in PARAMS if x["key"] == "latch")["viz"] = {"kind": "custom:tinyvoice_latch", "group": "latch", "role": "a", "extra_keys": ["mode"]}
 
 # Knobs that do nothing in some modes draw their own value (a dimmed "N/A"
-# where they are inert): Key, Scale, Retune (TUNE), Glide, Beauty (MORE). Same
+# where they are inert): Key, Scale, Retune, Glide, Beauty (all on PITCH). Same
 # cell, same knob. The table of modes is vt_param_acts in dsp.h and GATED in
 # src/ui/canvas.js.
 for k in ["key", "scale", "retune", "glide", "beauty"]:
-    next(x for x in PARAMS if x["key"] == k)["viz"] = {"kind": "custom:tinyvoc_" + k, "group": k, "role": "a", "extra_keys": ["mode"]}
+    next(x for x in PARAMS if x["key"] == k)["viz"] = {"kind": "custom:tinyvoice_" + k, "group": k, "role": "a", "extra_keys": ["mode"]}
 
-# Pages: TUNE (live pitch + scope), SPACE (character + space), MORE (the rest).
-TUNE  = ["mode", "key", "scale", "retune", "pitch", "target", "cents", "mix"]
-# Freeze and its length sit side by side (SPACE knobs 7-8). Demo has knob 6,
-# where Auto was before Gate took it in.
-SPACE = ["char1", "char2", "delay", "reverb", "spread", "demo", "freeze", "freeze_len"]
-# Gate (with Auto as its lowest setting) and Latch side by side, MORE knobs 6-7.
-MORE  = ["gain", "feedback", "tone", "glide", "mod", "gate", "latch", "beauty"]
+# Pages. VOICE is the home page (and the root's knobs): Mode, the five
+# contextual knobs, Mix, Level. PITCH: the tuning knobs and the scope on 5-7.
+# SPACE: delay, reverb, Freeze (its banner spans knobs 7-8). MORE: Gate and Latch.
+VOICE = ["mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain"]
+PITCH = ["key", "scale", "retune", "glide", "pitch", "target", "cents", "beauty"]
+SPACE = ["delay", "feedback", "reverb", "spread", "tone", "demo", "freeze", "freeze_len"]
+MORE  = ["gate", "latch"]
 MENU_ONLY = {}
 
 CHAIN = PARAMS + READOUTS
@@ -111,9 +119,9 @@ def line(o): return json.dumps(o, separators=(", ", ": "))
 out = []
 a = out.append
 a("{")
-for k, v in [("id", "tinyvoc"), ("name", "TinyVoc"), ("abbrev", "TVC"), ("version", "0.9.0"),
-             ("description", "7-mode vocal processor: Snap, Robot, Chords, Morph, Prism, Double, Tape"),
-             ("author", "Mat Taylor"), ("dsp", "tinyvoc.so"), ("api_version", 2), ("component_type", "audio_fx")]:
+for k, v in [("id", "tinyvoice"), ("name", "TinyVoice"), ("abbrev", "TVO"), ("version", "1.0.0"),
+             ("description", "Vocal processor: vocoder and carrier modes (Robot, Snap, Chords, Prism, Tape, Nightcall) and voice transformers (Scream, Dalek, HardTune, Harmony, Walkie)"),
+             ("author", "Mat Taylor"), ("dsp", "tinyvoice.so"), ("api_version", 2), ("component_type", "audio_fx")]:
     a("    %s: %s," % (json.dumps(k), json.dumps(v)))
 a('    "capabilities": {')
 a('        "chainable": true,')
@@ -124,15 +132,16 @@ a('        "ui_hierarchy": {')
 a('            "modes": null,')
 a('            "levels": {')
 a('                "root": {')
-a('                    "name": "TinyVoc",')
-a('                    "knobs": %s,' % line(TUNE))
+a('                    "name": "TinyVoice",')
+a('                    "knobs": %s,' % line(VOICE))
 a('                    "params": [')
-a('                        {"level": "TUNE", "label": "Tune"},')
+a('                        {"level": "VOICE", "label": "Voice"},')
+a('                        {"level": "PITCH", "label": "Pitch"},')
 a('                        {"level": "SPACE", "label": "Space"},')
 a('                        {"level": "MORE", "label": "More"}')
 a('                    ]')
 a('                },')
-for name, label, keys, last in [("TUNE", "Tune", TUNE, False), ("SPACE", "Space", SPACE, False), ("MORE", "More", MORE, True)]:
+for name, label, keys, last in [("VOICE", "Voice", VOICE, False), ("PITCH", "Pitch", PITCH, False), ("SPACE", "Space", SPACE, False), ("MORE", "More", MORE, True)]:
     a('                "%s": {' % name)
     a('                    "label": "%s",' % label)
     a('                    "knobs": %s,' % line(keys))
@@ -157,7 +166,7 @@ def c_string(js):
 # The served copy: per-mode name placeholders for the three macros.
 served = copy.deepcopy(doc["capabilities"]["chain_params"])
 for p in served:
-    slot = {"char1": "@1@", "char2": "@2@", "mod": "@3@"}.get(p["key"])
+    slot = {"char1": "@1@", "char2": "@2@", "mod": "@3@", "char4": "@4@", "char5": "@5@"}.get(p["key"])
     if slot: p["name"] = slot
 cp = json.dumps(served, separators=(",", ":"))
 assert "@" not in json.dumps(doc["capabilities"]["chain_params"]), "an @ in the table would be read as a placeholder"
@@ -165,8 +174,8 @@ uh = json.dumps(doc["capabilities"]["ui_hierarchy"], separators=(",", ":"))
 hdr = sys.argv[2] if len(sys.argv) > 2 else "src/dsp/module_meta.h"
 with open(hdr, "w") as f:
     f.write("/* GENERATED by scripts/gen_module_json.py from the same table as module.json. Do not edit. */\n")
-    f.write("#ifndef TINYVOC_MODULE_META_H\n#define TINYVOC_MODULE_META_H\n\n")
-    f.write("/* chain_params with @1@ @2@ @3@ for the char1 / char2 / mod names (filled per mode by dsp.c) */\n")
+    f.write("#ifndef TINYVOICE_MODULE_META_H\n#define TINYVOICE_MODULE_META_H\n\n")
+    f.write("/* chain_params with @1@ .. @5@ for the char1 / char2 / mod / char4 / char5 names (filled per mode by dsp.c) */\n")
     f.write("static const char VT_CHAIN_PARAMS_JSON[] = " + c_string(cp) + ";\n\n")
     f.write("static const char VT_UI_HIERARCHY_JSON[] = " + c_string(uh) + ";\n\n#endif\n")
 print("wrote", len(PARAMS), "params +", len(READOUTS), "readouts;", hdr, "with", len(cp), "+", len(uh), "bytes of JSON")

@@ -155,6 +155,9 @@ void daft_init(daft_t *d, float sr)
     d->k_lev_up = coef_1pole(0.20f, sr);        /* gain rises over 200 ms */
     d->k_lev_down = coef_1pole(0.001f, sr);     /* and drops within ~1 ms */
     d->lev_gain = 1.0f;
+    d->lev_target = LEV_TARGET;
+    d->lev_ceil = LEV_CEIL;
+    d->duty = PULSE_WIDTH;
     design_bank(d);
     d->hp[0] = design_highpass(HP_FC, 0.7071f, sr);
     d->hp[1] = d->hp[0];
@@ -213,7 +216,7 @@ void daft_set_auto(daft_t *d, int on)
 void daft_set_drone_root(daft_t *d, int root)
 {
     /* Root, fifth and octave, rooted between F#2 and F3 so the drone stays in
-     * the C3 drone's register whatever the key (every scale TinyVoc offers
+     * the C3 drone's register whatever the key (every scale TinyVoice offers
      * has the perfect fifth, so the scale doesn't change the chord). */
     root = ((root % 12) + 12) % 12;
     const int base = 48 + (root >= 6 ? root - 12 : root);
@@ -256,17 +259,17 @@ static inline float polyblep(float t, float dt)
     return 0.0f;
 }
 
-static inline float osc(float *ph, float dt, int pulse)
+static inline float osc(float *ph, float dt, int pulse, float width)
 {
     float t = *ph;
     float y;
     if (!pulse) {
         y = 2.0f * t - 1.0f - polyblep(t, dt);
     } else {
-        float t2 = t + 1.0f - PULSE_WIDTH;
+        float t2 = t + 1.0f - width;
         t2 -= floorf(t2);
-        y = (t < PULSE_WIDTH ? 1.0f : -1.0f) + polyblep(t, dt) - polyblep(t2, dt)
-            - (2.0f * PULSE_WIDTH - 1.0f);
+        y = (t < width ? 1.0f : -1.0f) + polyblep(t, dt) - polyblep(t2, dt)
+            - (2.0f * width - 1.0f);
     }
     t += dt;
     t -= floorf(t);
@@ -276,7 +279,8 @@ static inline float osc(float *ph, float dt, int pulse)
 
 static float carrier(daft_t *d)
 {
-    float sum = 0.0f;
+    float sum = 0.0f, amp_sum = 0.0f;
+    const float width = d->talker ? d->duty : PULSE_WIDTH;
     const float a_att = d->k_amp_a, a_rel = d->k_amp_r;
 
     /* The drone is on only while no MIDI key is held. */
@@ -299,18 +303,91 @@ static float carrier(daft_t *d)
         float dt1 = f * d->detune_ratio / d->sr, dt2 = f / d->detune_ratio / d->sr;
         if (dt1 > 0.45f) dt1 = 0.45f;
         if (dt2 > 0.45f) dt2 = 0.45f;
-        sum += v->amp * (osc(&v->ph[0], dt1, d->pulse) + osc(&v->ph[1], dt2, d->pulse));
+        sum += v->amp * (osc(&v->ph[0], dt1, d->pulse, width) + osc(&v->ph[1], dt2, d->pulse, width));
+        amp_sum += v->amp;
         if (d->beauty > 0.0f) {                              /* Beauty: sub-octave warmth, -10 dB at full */
             sum += v->amp * 0.37f * d->beauty * sinf(2.0f * PI_F * v->ph_sub);
             v->ph_sub += 0.5f * f / d->sr;
             v->ph_sub -= floorf(v->ph_sub);
         }
     }
+    /* Talker: white noise at `rasp` of the carrier's level. A 0.18-duty pulse
+     * pair has an RMS of about 1.5 per unit amplitude, uniform noise 0.577. */
+    if (d->talker && d->rasp > 0.0f) {
+        d->rng = d->rng * 1664525u + 1013904223u;
+        const float n = (float)(int)(d->rng >> 8) * (1.0f / 8388608.0f) - 1.0f;
+        sum += n * d->rasp * 2.67f * amp_sum;
+    }
     /* Beauty: blend toward an 11 kHz low-pass (the saws' fizz) */
     d->car_lp = flush(d->car_lp + (sum - d->car_lp) * d->k_car_lp);
     sum += d->beauty * (d->car_lp - sum);
     return sum * CARRIER_GAIN;
 }
+
+/* ---------------------------------------------------------- talker EQ */
+
+static inline float bqf_tick(const daft_bqf *c, daft_bqs *s, float x)
+{
+    const float y = c->b0 * x + s->z1;                 /* transposed direct form II */
+    s->z1 = flush(c->b1 * x - c->a1 * y + s->z2);
+    s->z2 = flush(c->b2 * x - c->a2 * y);
+    return y;
+}
+
+static daft_bqf bqf_highpass(float fc, float q, float sr)
+{
+    const float w = 2.0f * PI_F * fc / sr, cs = cosf(w), al = sinf(w) / (2.0f * q), a0 = 1.0f + al;
+    daft_bqf c = { (1.0f + cs) * 0.5f / a0, -(1.0f + cs) / a0, (1.0f + cs) * 0.5f / a0, -2.0f * cs / a0, (1.0f - al) / a0 };
+    return c;
+}
+
+static daft_bqf bqf_peak(float fc, float q, float db, float sr)
+{
+    const float A = powf(10.0f, db / 40.0f), w = 2.0f * PI_F * fc / sr, cs = cosf(w), al = sinf(w) / (2.0f * q), a0 = 1.0f + al / A;
+    daft_bqf c = { (1.0f + al * A) / a0, -2.0f * cs / a0, (1.0f - al * A) / a0, -2.0f * cs / a0, (1.0f - al / A) / a0 };
+    return c;
+}
+
+static daft_bqf bqf_highshelf(float fc, float db, float sr)      /* shelf slope 1 */
+{
+    const float A = powf(10.0f, db / 40.0f), w = 2.0f * PI_F * fc / sr, cs = cosf(w);
+    const float al = sinf(w) * 0.5f * sqrtf(2.0f), sa = 2.0f * sqrtf(A) * al;
+    const float a0 = (A + 1.0f) - (A - 1.0f) * cs + sa;
+    daft_bqf c = { A * ((A + 1.0f) + (A - 1.0f) * cs + sa) / a0, -2.0f * A * ((A - 1.0f) + (A + 1.0f) * cs) / a0,
+                   A * ((A + 1.0f) + (A - 1.0f) * cs - sa) / a0, 2.0f * ((A - 1.0f) - (A + 1.0f) * cs) / a0,
+                   ((A + 1.0f) - (A - 1.0f) * cs - sa) / a0 };
+    return c;
+}
+
+void daft_set_talker(daft_t *d, int on, float duty, float rasp, float bleed, float cavity_db)
+{
+    const int was = d->talker;
+    d->talker = on != 0;
+    if (!d->talker) {
+        if (was) { d->lev_target = LEV_TARGET; d->lev_ceil = LEV_CEIL; }
+        return;
+    }
+    d->duty = duty < 0.10f ? 0.10f : (duty > 0.30f ? 0.30f : duty);
+    d->rasp = rasp < 0.0f ? 0.0f : rasp;
+    d->bleed = bleed < 0.0f ? 0.0f : bleed;
+    d->lev_target = LEV_TARGET * 0.4f;                 /* -8 dB: the headroom stage keeps -6.1 dBFS */
+    d->lev_ceil = LEV_CEIL * 0.45f;
+    d->tk_air_a = expf(-2.0f * PI_F * 3500.0f / d->sr);
+    if (!was) {
+        d->tk_eq[0] = bqf_highpass(250.0f, 0.5412f, d->sr);      /* steep low-cut: 4th-order Butterworth */
+        d->tk_eq[1] = bqf_highpass(250.0f, 1.3066f, d->sr);
+        d->tk_eq[3] = bqf_highshelf(3500.0f, 6.0f, d->sr);       /* crisp consonants */
+        d->last_cav_db = -1000.0f;
+        memset(d->tk_z, 0, sizeof d->tk_z);
+    }
+    if (cavity_db != d->last_cav_db) {                 /* the oral cavity: a peak near 1.2 kHz */
+        d->cav_db = cavity_db;
+        d->last_cav_db = cavity_db;
+        d->tk_eq[2] = bqf_peak(1200.0f, 1.4f, cavity_db, d->sr);
+    }
+}
+
+float daft_carrier_sample(daft_t *d) { return carrier(d); }
 
 /* ---------------------------------------------------------- process */
 
@@ -419,14 +496,23 @@ void daft_process_lr(daft_t *d, float mod, float *out_l, float *out_r)
     /* Beauty: the voice's own air (> 5.5 kHz, two one-pole high-passes) bled
      * in under the vocoder, through the same gate, so pauses stay silent */
     {
-        float y1 = d->air_a * (d->air_z[1] + x - d->air_z[0]);
-        float y2 = d->air_a * (d->air_z[2] + y1 - d->air_z[1]);
+        const float aa = d->talker ? d->tk_air_a : d->air_a;
+        float y1 = aa * (d->air_z[1] + x - d->air_z[0]);
+        float y2 = aa * (d->air_z[2] + y1 - d->air_z[1]);
         d->air_z[0] = x;
         d->air_z[1] = flush(y1);
         d->air_z[2] = flush(y2);
         float air = 0.5f * d->beauty * y2 * d->gate_gain;
+        if (d->talker) air = d->bleed * d->sib * y2 * d->gate_gain;   /* the unvoiced breath, not the whole top */
         l += air;
         r += air;
+    }
+    /* Talker: low-cut, cavity peak, high shelf, per channel. */
+    if (d->talker) {
+        for (int k = 0; k < 4; k++) {
+            l = bqf_tick(&d->tk_eq[k], &d->tk_z[0][k], l);
+            r = bqf_tick(&d->tk_eq[k], &d->tk_z[1][k], r);
+        }
     }
 
     /* Ensemble (VP-330 style): three BBD-like taps on the mono vocoder,
@@ -464,10 +550,10 @@ void daft_process_lr(daft_t *d, float mod, float *out_l, float *out_r)
         d->lev_ms = flush(d->lev_ms + (m * m - d->lev_ms) * d->k_lev_rms);
         d->lev_pk = am > d->lev_pk ? am : flush(d->lev_pk + (am - d->lev_pk) * d->k_lev_pk_r);
         float rms = sqrtf(d->lev_ms);
-        float goal = rms > 1e-5f ? LEV_TARGET / rms : LEV_MAX_GAIN;
+        float goal = rms > 1e-5f ? d->lev_target / rms : LEV_MAX_GAIN;
         if (goal > LEV_MAX_GAIN) goal = LEV_MAX_GAIN;
         if (goal < 1.0f) goal = 1.0f;                       /* a leveller here, never a cut */
-        if (d->lev_pk > 1e-6f && goal * d->lev_pk > LEV_CEIL) goal = fmaxf(LEV_CEIL / d->lev_pk, 0.25f);
+        if (d->lev_pk > 1e-6f && goal * d->lev_pk > d->lev_ceil) goal = fmaxf(d->lev_ceil / d->lev_pk, 0.25f);
         d->lev_gain += (goal - d->lev_gain) * (goal < d->lev_gain ? d->k_lev_down : d->k_lev_up);
     }
     l *= d->lev_gain;

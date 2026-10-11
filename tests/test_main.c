@@ -1,5 +1,5 @@
 /*
- * TinyVoc test runner. No framework; exits non-zero on any failure.
+ * TinyVoice test runner. No framework; exits non-zero on any failure.
  * dsp.c is compiled with -DVT_TEST_ALLOC so every engine allocation is
  * counted here and checked for leaks at the end.
  */
@@ -127,7 +127,7 @@ static void test_process_sane(void)
 
     uint8_t hold[3] = {0x90, 57, 100};
     dsp_handle_midi(vt, hold, 3);                                  /* Robot needs a carrier note (or the drone) */
-    static const char *const modes[] = {"Snap", "Robot", "Chords", "Morph", "Prism", "Double", "Tape"};
+    static const char *const modes[] = {"Robot", "Snap", "Chords", "Prism", "Tape", "Nightcall", "Scream", "Dalek", "HardTune", "Harmony", "Walkie", "Morph", "Double"};
     CHECK(sizeof modes / sizeof modes[0] == VT_MODE_COUNT);
     for (int mode = 0; mode < VT_MODE_COUNT; mode++) {
         CHECK(dsp_set_param(vt, "mode", modes[mode]) == 0);
@@ -987,6 +987,7 @@ static void test_state_roundtrip(void)
         {"mix", "0.44"}, {"gain", "-7.5"}, {"delay", "375"}, {"feedback", "0.61"},
         {"spread", "0.71"}, {"tone", "0.4"}, {"glide", "120"}, {"mod", "0.33"},
         {"reverb", "0.27"}, {"freeze_len", "4 Bars"}, {"beauty", "0.83"}, {"latch", "On"},
+        {"char4", "0.77"}, {"char5", "0.21"},
     };
     CHECK(sizeof set / sizeof set[0] == VT_P_COUNT - 2);            /* every saved param (not freeze/demo) off its default */
     for (size_t i = 0; i < sizeof set / sizeof set[0]; i++) CHECK(dsp_set_param(a, set[i][0], set[i][1]) == 0);
@@ -1147,8 +1148,8 @@ static void test_module_json_matches_params(void)
 
     /* Identity. Schwung's chain loads audio FX from <id>/<id>.so, so "dsp" must
      * name exactly that file or the module lists but never loads. */
-    CHECK(js_str(js_get(root, "id"), s, sizeof s) && strcmp(s, "tinyvoc") == 0);
-    CHECK(js_str(js_get(root, "dsp"), t, sizeof t) && strcmp(t, "tinyvoc.so") == 0);
+    CHECK(js_str(js_get(root, "id"), s, sizeof s) && strcmp(s, "tinyvoice") == 0);
+    CHECK(js_str(js_get(root, "dsp"), t, sizeof t) && strcmp(t, "tinyvoice.so") == 0);
     CHECK(js_str(js_get(root, "component_type"), s, sizeof s) && strcmp(s, "audio_fx") == 0);
     CHECK(js_get(root, "api_version") && atoi(js_get(root, "api_version")) == 2);
 
@@ -1214,7 +1215,7 @@ static void test_module_json_matches_params(void)
             const char *viz = js_get(o, "viz");
             CHECK(viz != NULL);
             if (!viz) continue;
-            CHECK(js_str(js_get(viz, "kind"), s, sizeof s) && strcmp(s, "custom:tinyvoc_scope") == 0);
+            CHECK(js_str(js_get(viz, "kind"), s, sizeof s) && strcmp(s, "custom:tinyvoice_scope") == 0);
             CHECK(js_str(js_get(viz, "group"), s, sizeof s) && strcmp(s, "scope") == 0);
             CHECK(js_str(js_get(viz, "role"), seen_roles[k], sizeof seen_roles[k]));
             for (int j = 0; j < k; j++) CHECK(strcmp(seen_roles[j], seen_roles[k]) != 0);   /* a role per cell */
@@ -1237,13 +1238,13 @@ static void test_module_json_matches_params(void)
         CHECK(go && js_str(js_elem(go, 1), s, sizeof s) && strcmp(s, "-60 dB") == 0);
         CHECK(go && js_str(js_elem(go, VT_GATE_OPTS - 1), s, sizeof s) && strcmp(s, "0 dB") == 0);
         const char *lt = js_elem(cp, VT_P_LATCH), *lv = lt ? js_get(lt, "viz") : NULL;
-        CHECK(lv && js_str(js_get(lv, "kind"), s, sizeof s) && strcmp(s, "custom:tinyvoc_latch") == 0);
+        CHECK(lv && js_str(js_get(lv, "kind"), s, sizeof s) && strcmp(s, "custom:tinyvoice_latch") == 0);
         CHECK(lv && js_get(lv, "extra_keys") && js_str(js_elem(js_get(lv, "extra_keys"), 0), s, sizeof s) && strcmp(s, "mode") == 0);
         static const int gated_ids[5] = { VT_P_KEY, VT_P_SCALE, VT_P_RETUNE, VT_P_GLIDE, VT_P_BEAUTY };
         for (int g = 0; g < 5; g++) {                                /* Key, Scale, Retune, Glide, Beauty: N/A widgets */
             const char *gp = js_elem(cp, gated_ids[g]), *gv = gp ? js_get(gp, "viz") : NULL;
             char want_kind[48];
-            snprintf(want_kind, sizeof want_kind, "custom:tinyvoc_%s", dsp_param_def(gated_ids[g])->key);
+            snprintf(want_kind, sizeof want_kind, "custom:tinyvoice_%s", dsp_param_def(gated_ids[g])->key);
             CHECK(gv && js_str(js_get(gv, "kind"), s, sizeof s) && strcmp(s, want_kind) == 0);
             CHECK(gv && js_get(gv, "extra_keys") && js_str(js_elem(js_get(gv, "extra_keys"), 0), s, sizeof s) && strcmp(s, "mode") == 0);
         }
@@ -1252,6 +1253,14 @@ static void test_module_json_matches_params(void)
         dsp_cleanup(w);
     }
 
+    /* a fresh engine: char4 / char5 are Snap's Retune (default 0 ms) and Beauty (default 0.5), scaled to 0..1 */
+    {
+        vt_t *f = dsp_init(VT_SAMPLE_RATE);
+        char got[64];
+        CHECK(dsp_get_param(f, "char4", got, sizeof got) > 0 && fabs(atof(got) - 0.0) < 1e-6);
+        CHECK(dsp_get_param(f, "char5", got, sizeof got) > 0 && fabs(atof(got) - 0.5) < 1e-6);
+        dsp_cleanup(f);
+    }
     /* declared defaults are what a fresh engine actually reports */
     vt_t *vt = dsp_init(VT_SAMPLE_RATE);
     for (int i = 0; i < VT_P_COUNT; i++) {
@@ -1259,6 +1268,7 @@ static void test_module_json_matches_params(void)
         char got[64];
         CHECK(dsp_get_param(vt, d->key, got, sizeof got) > 0);
         if (d->type == VT_PTYPE_ENUM) CHECK(strcmp(got, d->options[(int)d->def]) == 0);
+        else if (i == VT_P_CHAR4 || i == VT_P_CHAR5) { /* aliases of Retune / Beauty in Snap, whatever the sweeps left them at: checked below */ }
         else CHECK(fabs(atof(got) - d->def) < 1e-6);
 
         /* setter/getter tables: the full declared range is reachable, nothing beyond it */
@@ -1285,12 +1295,13 @@ static void test_module_json_matches_params(void)
      * knobs; each page lists its params as key strings (or {"key": ...}).
      * Knobs are exactly the agreed layout, every knob is listed on its page,
      * and every param is on exactly one page. */
-    static const char *const want[3][8] = {
-        { "mode", "key", "scale", "retune", "pitch", "target", "cents", "mix" },    /* TUNE: scope on 5-7 */
-        { "char1", "char2", "delay", "reverb", "spread", "demo", "freeze", "freeze_len" }, /* SPACE: Freeze + its length side by side */
-        { "gain", "feedback", "tone", "glide", "mod", "gate", "latch", "beauty" },         /* MORE: Gate (with Auto) + Latch */
+    static const char *const want[4][8] = {
+        { "mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain" },       /* VOICE: Mode, five contextual knobs, Mix, Level */
+        { "key", "scale", "retune", "glide", "pitch", "target", "cents", "beauty" }, /* PITCH: scope on 5-7 */
+        { "delay", "feedback", "reverb", "spread", "tone", "demo", "freeze", "freeze_len" }, /* SPACE: Freeze + its length side by side */
+        { "gate", "latch" },                                                         /* MORE: Gate (with Auto) + Latch */
     };
-    static const char *const page_names[3] = { "TUNE", "SPACE", "MORE" };
+    static const char *const page_names[4] = { "VOICE", "PITCH", "SPACE", "MORE" };
     const char *levels = js_get(js_get(caps, "ui_hierarchy"), "levels");
     CHECK(levels != NULL);
     if (!levels) return;
@@ -1301,12 +1312,12 @@ static void test_module_json_matches_params(void)
     int nlevels = 0;
     char names[16][32];
     while (js_nth_member(levels, nlevels, names[nlevels], sizeof names[0]) && nlevels < 16) nlevels++;
-    CHECK(nlevels == 4);
+    CHECK(nlevels == 5);
     CHECK(strcmp(names[0], "root") == 0);
-    for (int l = 1; l < nlevels && l < 4; l++) CHECK(strcmp(names[l], page_names[l - 1]) == 0);
+    for (int l = 1; l < nlevels && l < 5; l++) CHECK(strcmp(names[l], page_names[l - 1]) == 0);
 
     int listed_on[VT_P_COUNT] = {0}, referenced[16] = {0};
-    for (int l = 0; l < nlevels && l < 4; l++) {
+    for (int l = 0; l < nlevels && l < 5; l++) {
         const char *lv = js_get(levels, names[l]);
         const int is_root = l == 0;
         const int pg = is_root ? 0 : l - 1;
@@ -1340,7 +1351,7 @@ static void test_module_json_matches_params(void)
                 CHECK(entry_key(pe, t, sizeof t));                    /* key string, or {"key": ...} */
                 int id = dsp_param_index(t);
                 int readout = strcmp(t, "pitch") == 0 || strcmp(t, "target") == 0 || strcmp(t, "cents") == 0;
-                CHECK(id >= 0 || (readout && pg == 0));               /* readouts only on TUNE */
+                CHECK(id >= 0 || (readout && pg == 1));               /* readouts only on PITCH */
                 if (id >= 0) listed_on[id]++;
             }
         }
@@ -2041,7 +2052,10 @@ static void test_demo_mode(void)
         dsp_process_block_f(vt, blk, 128);
         double t = (b + 1) * 128.0 / VT_SAMPLE_RATE;
         for (int i = 0; i < 128; i++) { CHECK(isfinite(blk[2 * i])); rms_demo += blk[2 * i] * blk[2 * i]; nrms++; }
-        if (b == (int)(0.4 * VT_SAMPLE_RATE / 128.0)) {            /* Snap, mid first syllable */
+        if (b == (int)(0.4 * VT_SAMPLE_RATE / 128.0)) {            /* the tour starts on Robot */
+            dsp_get_param(vt, "mode", m, sizeof m); CHECK(strcmp(m, "Robot") == 0);
+        }
+        if (b == (int)(8.4 * VT_SAMPLE_RATE / 128.0)) {            /* Snap, second slot, mid first syllable */
             dsp_get_param(vt, "mode", m, sizeof m); CHECK(strcmp(m, "Snap") == 0);
             CHECK(dsp_get_param(vt, "viz", buf, sizeof buf) > 0);
             float f0 = 0, tgt = 0, ce = 0;
@@ -2049,7 +2063,7 @@ static void test_demo_mode(void)
             if (fabs(tgt - 220.0) > 0.5) printf("  demo snap: f0 %.2f target %.2f\n", f0, tgt);
             CHECK(fabs(tgt - 220.0) < 0.5);                        /* the sharp A3 gets pulled to A3 */
         }
-        if (fabs(t - 8.5) < 0.002) { dsp_get_param(vt, "mode", m, sizeof m); CHECK(strcmp(m, "Robot") == 0); }
+        if (fabs(t - 8.5) < 0.002) { dsp_get_param(vt, "mode", m, sizeof m); CHECK(strcmp(m, "Snap") == 0); }
         if (fabs(t - 16.5) < 0.002) { dsp_get_param(vt, "mode", m, sizeof m); CHECK(strcmp(m, "Chords") == 0); }
     }
     CHECK(sqrt(rms_demo / nrms) > 0.02);                           /* audible with no mic at all */
@@ -2071,7 +2085,7 @@ static void test_demo_mode(void)
     CHECK(dsp_set_param(vt, "demo", "On") == 0);
     for (int b = 0; b < (int)(10.0 * VT_SAMPLE_RATE / 128.0); b++) { memset(blk, 0, sizeof blk); dsp_process_block_f(vt, blk, 128); }
     dsp_get_param(vt, "mode", m, sizeof m);
-    CHECK(strcmp(m, "Snap") == 0);
+    CHECK(strcmp(m, "Robot") == 0);
     dsp_cleanup(vt);
 }
 
@@ -2247,7 +2261,7 @@ static void test_served_metadata(void)
         const char *so = js_elem(served, i), *fo = js_elem(file_cp, i);
         CHECK(js_str(js_get(so, "key"), a, sizeof a) && js_str(js_get(fo, "key"), b, sizeof b) && strcmp(a, b) == 0);
         const char *v = js_get(so, "viz");
-        if (v && js_str(js_get(v, "kind"), a, sizeof a) && strcmp(a, "custom:tinyvoc_scope") == 0) viz++;
+        if (v && js_str(js_get(v, "kind"), a, sizeof a) && strcmp(a, "custom:tinyvoice_scope") == 0) viz++;
         CHECK((js_get(so, "visible_if") != NULL) == (js_get(fo, "visible_if") != NULL));
     }
     CHECK(viz == 3);                                               /* survives the trip, unlike the host fallback */
@@ -2255,7 +2269,7 @@ static void test_served_metadata(void)
     static char hier[4096];
     CHECK(dsp_get_param(vt, "ui_hierarchy", hier, sizeof hier) > 0);
     const char *lv = js_get(hier, "levels");
-    CHECK(lv && js_get(lv, "root") && js_get(lv, "TUNE") && js_get(lv, "SPACE") && js_get(lv, "MORE"));
+    CHECK(lv && js_get(lv, "root") && js_get(lv, "VOICE") && js_get(lv, "PITCH") && js_get(lv, "SPACE") && js_get(lv, "MORE"));
 
     char small[64];
     CHECK(dsp_get_param(vt, "chain_params", small, sizeof small) == -1);   /* too small: refuses */
@@ -2773,8 +2787,8 @@ static void test_macro_labels(void)
         dsp_set_param(vt, "mode", idx);
         CHECK(dsp_get_param(vt, "chain_params", cp, sizeof cp) > 0);
         CHECK(js_arr_len(cp) == VT_P_COUNT + 3 && strchr(cp, '@') == NULL);
-        const int ids[3] = { VT_P_CHAR1, VT_P_CHAR2, VT_P_MOD };
-        for (int k = 0; k < 3; k++) {
+        const int ids[VT_MACROS] = { VT_P_CHAR1, VT_P_CHAR2, VT_P_MOD, VT_P_CHAR4, VT_P_CHAR5 };
+        for (int k = 0; k < VT_MACROS; k++) {
             const char *want = dsp_macro_name(m, k);
             CHECK(want && want[0]);
             CHECK(js_str(js_get(js_elem(cp, ids[k]), "name"), nm, sizeof nm) && want && strcmp(nm, want) == 0);
@@ -2784,7 +2798,7 @@ static void test_macro_labels(void)
     CHECK(strcmp(dsp_macro_name(VT_MODE_SNAP, 0), "Formant") == 0);
     CHECK(strcmp(dsp_macro_name(VT_MODE_ROBOT, 1), "Noise") == 0);
     CHECK(strcmp(dsp_macro_name(VT_MODE_TAPE, 0), "Drop") == 0);
-    CHECK(dsp_macro_name(VT_MODE_COUNT, 0) == NULL && dsp_macro_name(0, 3) == NULL);
+    CHECK(dsp_macro_name(VT_MODE_COUNT, 0) == NULL && dsp_macro_name(0, VT_MACROS) == NULL && dsp_macro_name(0, -1) == NULL);
     dsp_cleanup(vt);
 
     /* is_loading pulses "1" after a mode change so the knob pages re-read the
@@ -3867,14 +3881,14 @@ static void test_beauty(void)
  * them whatever the mode. */
 static void test_inert_knobs(void)
 {
-    static const char *const modes[VT_MODE_COUNT] = { "Snap", "Robot", "Chords", "Morph", "Prism", "Double", "Tape" };
+    static const char *const modes[VT_MODE_COUNT] = {"Robot", "Snap", "Chords", "Prism", "Tape", "Nightcall", "Scream", "Dalek", "HardTune", "Harmony", "Walkie", "Morph", "Double"};
     static const struct { int id; const char *key, *a, *b; int enum_; int acts[VT_MODE_COUNT]; } k[5] = {
-        /*                                                         Snap Robot Chords Morph Prism Double Tape */
-        { VT_P_KEY,    "key",    "D",     "A",     1, { 1, 1, 1, 1, 1, 1, 0 } },
-        { VT_P_SCALE,  "scale",  "Major", "Minor", 1, { 1, 0, 1, 1, 1, 1, 0 } },
-        { VT_P_RETUNE, "retune", "100",   "300",   0, { 1, 0, 1, 1, 0, 1, 0 } },
-        { VT_P_GLIDE,  "glide",  "100",   "300",   0, { 1, 1, 1, 1, 1, 1, 0 } },
-        { VT_P_BEAUTY, "beauty", "0.3",   "0.9",   0, { 1, 1, 1, 0, 1, 0, 0 } },
+        /*                                                         Robot Snap Chords Prism Tape Night Scream Dalek HardT Harm Walkie Morph Double */
+        { VT_P_KEY,    "key",    "D",     "A",     1, { 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 1 } },
+        { VT_P_SCALE,  "scale",  "Major", "Minor", 1, { 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1 } },
+        { VT_P_RETUNE, "retune", "100",   "300",   0, { 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1 } },
+        { VT_P_GLIDE,  "glide",  "100",   "300",   0, { 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 1 } },
+        { VT_P_BEAUTY, "beauty", "0.3",   "0.9",   0, { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
     };
     static float zero[2 * 128];
     char buf[64];
@@ -3920,7 +3934,7 @@ static void test_inert_knobs(void)
     CHECK(dsp_get_param(w, "chain_params", cp, sizeof cp) > 0);
     for (int i = 0; i < 5; i++) {
         char kind[48];
-        snprintf(kind, sizeof kind, "custom:tinyvoc_%s", k[i].key);
+        snprintf(kind, sizeof kind, "custom:tinyvoice_%s", k[i].key);
         CHECK(strstr(cp, kind) != NULL);
     }
     dsp_cleanup(w);
@@ -3933,8 +3947,9 @@ static void test_mode_switch_clean(void)
      * the new one takes over at the next block and fades in. The largest
      * sample step in the 40 ms after each switch stays near the steady
      * waveform's own (hard cuts were up to 16x; Robot <-> Morph worst). */
-    static const char *const names[] = { "Snap", "Robot", "Chords", "Morph", "Prism", "Double", "Tape" };
-    static const int order[] = { 0, 1, 2, 3, 4, 5, 6, 0, 6, 1, 0, 4, 1, 3, 1, 5, 2, 0 };
+    static const char *const names[] = {"Robot", "Snap", "Chords", "Prism", "Tape", "Nightcall", "Scream", "Dalek", "HardTune", "Harmony", "Walkie", "Morph", "Double"};
+    static const int order[] = { 1, 0, 2, 11, 3, 12, 4, 1, 4, 0, 1, 3, 0, 11, 0, 12, 2, 1,       /* the original tour of the old modes */
+                                 5, 6, 7, 8, 9, 10, 0, 5, 1, 9, 2, 10, 3, 6, 4, 7, 12, 8, 11, 5, 0 };   /* then the new ones, between old ones */
     vt_t *vt = dsp_init(VT_SAMPLE_RATE);
     note_on(vt, 60);
     long pos = 0;
@@ -4480,7 +4495,7 @@ static void test_snap_space_age(void)
         for (long p = 0; p < N; p += 128) {
             for (int i = 0; i < 128; i++) blk[2 * i] = blk[2 * i + 1] = 0.5f * tone(146.832, (int)(p + i), 6, VT_SAMPLE_RATE);
             dsp_process_block_f(vt, blk, 128);
-            for (int i = 0; i < 128; i++) out[k++] = blk[2 * i];
+            for (int i = 0; i < 128 && k < N; i++) out[k++] = blk[2 * i];
         }
         const double r = rms_of(out + N / 2, N / 2);
         share[m] = 10.0 * log10(2.0 * goertzel(out + N / 2, N / 2, 146.832) / (r * r + 1e-20) + 1e-20);
@@ -4520,8 +4535,11 @@ static void test_snap_space_age(void)
 
 /* ------------------------------------------------- pending engine tests */
 
+#include "voice_tests.inc"
+
 int main(void)
 {
+    setvbuf(stdout, NULL, _IONBF, 0);              /* a crash must not swallow the last test name */
     RUN(test_lifecycle);
     RUN(test_param_defaults_and_roundtrip);
     RUN(test_midi_voices);
@@ -4598,6 +4616,22 @@ int main(void)
     RUN(test_midi_channel_filter);
     RUN(test_state_roundtrip);
     RUN(test_module_json_matches_params);
+
+    /* TinyVoice: the voice-transformation roster (tests/voice_tests.inc) */
+    RUN(test_voice_roster);
+    RUN(test_macro_slots);
+    RUN(test_hilbert_pair);
+    RUN(test_dalek);
+    RUN(test_walkie);
+    RUN(test_harmony);
+    RUN(test_scream);
+    RUN(test_hardtune);
+    RUN(test_nightcall);
+    RUN(test_prism_glass);
+    RUN(test_midi_agnostic_modes);
+    RUN(test_latency_budget);
+    RUN(test_headroom);
+    RUN(test_all_modes_numeric_safety);
 
     CHECK(g_live_allocs == 0);   /* global leak check after everything */
 

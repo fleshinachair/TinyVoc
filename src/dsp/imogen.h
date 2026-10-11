@@ -17,8 +17,8 @@
  *
  * No allocation; embedded in vt_t next to the cher_t it reads from.
  */
-#ifndef TINYVOC_IMOGEN_H
-#define TINYVOC_IMOGEN_H
+#ifndef TINYVOICE_IMOGEN_H
+#define TINYVOICE_IMOGEN_H
 
 #include "cher.h"
 #include "psola.h"

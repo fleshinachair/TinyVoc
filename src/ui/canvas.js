@@ -1,13 +1,14 @@
 /*
- * TinyVoc's OLED widget for the Schwung param pages
+ * TinyVoice's OLED widget for the Schwung param pages
  * (shared/param_pages/widget_registry.mjs).
  *
- * custom:tinyvoc_scope spans TUNE knobs 5-7 (the read-only Pitch, Target and
+ * custom:tinyvoice_scope spans PITCH knobs 5-7 (the read-only Pitch, Target and
  * Cents readouts), drawn above those knobs' labels. It shows:
- *   pitch modes (Snap, Chords, Morph, Prism, Double, Tape)
+ *   pitch modes (Snap, Chords, Prism, Tape, Scream, HardTune, Morph, Double)
  *       the target note name, and a needle for how far the sung pitch is from
- *       it (+-50 cents across the bar); "--" when nothing is pitched
- *   Robot   16 bars: the vocoder's analysis bands
+ *       it (+-50 cents across the bar); "--" when nothing is pitched (Dalek,
+ *       Harmony and Walkie run no tracker, so they read "--")
+ *   Robot, Nightcall   16 bars: the vocoder's analysis bands
  *   Freeze  a playhead line along the bottom while a take loops; while
  *           recording, a bar that fills as the take does, blinking head; and a
  *           tag top right: "ARM" (blinking) while waiting for the downbeat,
@@ -16,7 +17,7 @@
  *   pads    the target note drawn inverted while a pad sets it, and a dot
  *           that flashes on every note-on (shows pads are reaching the FX)
  *
- * custom:tinyvoc_freeze spans SPACE knobs 7-8 (Freeze, Freeze Len). Off: the
+ * custom:tinyvoice_freeze spans SPACE knobs 7-8 (Freeze, Freeze Len). Off: the
  * two values, centred in their cells like the stock knobs. Active: the box is
  * cleared and taken over - "[ *** ARMED *** ]" flashing inverted with the beats
  * left to bar 1 as squares, an inverted "[ REC ]" with the take filling,
@@ -33,7 +34,9 @@
  *   (the last four optional)
  */
 (function () {
-    const MODE_ROBOT = 1;
+    /* the modes that draw 16 analysis bands (the vocoders: Robot 0, Nightcall 5) */
+    const BAND_MODES = [0, 5];
+    const isBands = () => BAND_MODES.indexOf(st.mode) >= 0;
     const NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
     const BAR_FALL_PER_MS = 255 / 400;   /* a full bar falls in 0.4 s */
     const NEEDLE_EASE_MS = 120;
@@ -166,12 +169,12 @@
         const tag = st.armed ? (Math.floor(now / 250) % 2 === 0 ? "ARM" : "") : st.rec ? "REC" : st.frozen ? "LOOP" : "";
         const agcTxt = !freezeOn && st.agcDb >= 1 ? "+" + Math.round(st.agcDb) : "";
         const right = freezeOn ? tw("LOOP") + 2 : agcTxt ? tw("+24") + 2 : 0;
-        if (st.mode === MODE_ROBOT) drawBars(ctx, 0, body);
+        if (isBands()) drawBars(ctx, 0, body);
         else drawPitch(ctx, 0, body, right);
         const topRight = tag || agcTxt;                               /* Freeze's state, or Auto's lift */
         if (topRight) {
             const x = W - tw(topRight);
-            if (st.mode === MODE_ROBOT) ctx.fillRect(x - 1, 0, W - x + 1, 7, 0);
+            if (isBands()) ctx.fillRect(x - 1, 0, W - x + 1, 7, 0);
             ctx.print(x, 0, topRight, 1);
         }
         if (now - st.flashAt < FLASH_MS) ctx.fillRect(W - 2, H - (body < H ? 5 : 2), 2, 2, 1);  /* note-on */
@@ -285,14 +288,15 @@
         if (lp >= 0) ctx.fillRect(Math.max(0, Math.round(lp * (W - 3))), H - 3, 3, 3, 1);
     }
 
-    /* custom:tinyvoc_latch, MORE knob 7. In the modes Latch acts in (Robot,
+    /* custom:tinyvoice_latch, MORE knob 2. In the modes Latch acts in (Robot, Nightcall, Harmony,
      * Chords, Prism) the value as the stock enum knob would show it, On
      * inverted so a held chord is seen at a glance; in the others a dimmed
      * "---" (every other pixel cleared: the 1-bit screen's grey). The cell,
      * its name and the knob never move; the knob still turns everywhere. Until
      * the mode has been read it shows the value. */
-    const MODES = ["Snap", "Robot", "Chords", "Morph", "Prism", "Double", "Tape"];
-    const LATCH_MODES = ["Robot", "Chords", "Prism"];
+    const MODES = ["Robot", "Snap", "Chords", "Prism", "Tape", "Nightcall", "Scream", "Dalek",
+                   "HardTune", "Harmony", "Walkie", "Morph", "Double"];
+    const LATCH_MODES = ["Robot", "Chords", "Prism", "Nightcall", "Harmony"];
     function drawLatch(ctx, payload) {
         const values = (payload && payload.values) || {};
         const W = ctx.width, H = ctx.height;
@@ -314,8 +318,8 @@
         ctx.print(x, ty, txt, on ? 0 : 1);
     }
 
-    /* The knobs that do nothing in some modes: Key, Scale, Retune (TUNE),
-     * Glide, Beauty (MORE). Where a knob acts the widget shows its value as
+    /* The knobs that do nothing in some modes: Key, Scale, Retune,
+     * Glide, Beauty (all on PITCH). Where a knob acts the widget shows its value as
      * the stock knob would; where it doesn't, a dimmed "N/A" (every other
      * pixel cleared: the 1-bit screen's grey). Same cell, name and knob in
      * every mode, and the DSP ignores turns where the knob does nothing. The
@@ -327,13 +331,13 @@
     const SCALE_SHORT = { Chromatic: ["Chromatic", "Chrom", "Chr"], Pentatonic: ["Pentatonic", "Penta", "Pen"], Dorian: ["Dorian", "Dor"] };
     const ms = (v) => { const n = Number(v), r = Number.isFinite(n) ? Math.round(Math.max(0, Math.min(500, n))) : 0; return [r + "ms", String(r)]; };
     const GATED = {
-        key:    { acts: ["Snap", "Robot", "Chords", "Morph", "Prism", "Double"],
+        key:    { acts: ["Robot", "Snap", "Chords", "Prism", "Nightcall", "HardTune", "Morph", "Double"],
                   text: (v) => [optName(v, ROOTS, "C")] },
-        scale:  { acts: ["Snap", "Chords", "Morph", "Prism", "Double"],
+        scale:  { acts: ["Snap", "Chords", "Prism", "HardTune", "Morph", "Double"],
                   text: (v) => { const n = optName(v, SCALES, "Chromatic"); return SCALE_SHORT[n] || [n]; } },
         retune: { acts: ["Snap", "Chords", "Morph", "Double"], text: ms },
-        glide:  { acts: ["Snap", "Robot", "Chords", "Morph", "Prism", "Double"], text: ms },
-        beauty: { acts: ["Snap", "Robot", "Chords", "Prism"],
+        glide:  { acts: ["Robot", "Snap", "Chords", "Prism", "Nightcall", "HardTune", "Morph", "Double"], text: ms },
+        beauty: { acts: ["Robot", "Snap", "Chords", "Prism"],
                   text: (v) => { const n = Number(v); return [(Number.isFinite(n) ? Math.round(Math.max(0, Math.min(1, n)) * 100) : 0) + "%"]; } },
     };
     function drawGated(ctx, payload, key) {
@@ -360,16 +364,16 @@
 
     globalThis.canvas_overlay = {
         widgetKinds: {
-            "custom:tinyvoc_key": gatedWidget("key"),
-            "custom:tinyvoc_scale": gatedWidget("scale"),
-            "custom:tinyvoc_retune": gatedWidget("retune"),
-            "custom:tinyvoc_glide": gatedWidget("glide"),
-            "custom:tinyvoc_beauty": gatedWidget("beauty"),
-            "custom:tinyvoc_scope": { draw, nominal: { w: 96, h: 15 } },
-            "custom:tinyvoc_freeze": { draw: drawFreeze, nominal: { w: 64, h: 15 } },
-            "custom:tinyvoc_latch": { draw: drawLatch, nominal: { w: 32, h: 15 } },
+            "custom:tinyvoice_key": gatedWidget("key"),
+            "custom:tinyvoice_scale": gatedWidget("scale"),
+            "custom:tinyvoice_retune": gatedWidget("retune"),
+            "custom:tinyvoice_glide": gatedWidget("glide"),
+            "custom:tinyvoice_beauty": gatedWidget("beauty"),
+            "custom:tinyvoice_scope": { draw, nominal: { w: 96, h: 15 } },
+            "custom:tinyvoice_freeze": { draw: drawFreeze, nominal: { w: 64, h: 15 } },
+            "custom:tinyvoice_latch": { draw: drawLatch, nominal: { w: 32, h: 15 } },
         },
     };
     /* test seam (tests/canvas_test.mjs) */
-    globalThis.TINYVOC_SCOPE_FOR_TEST = { draw, drawFreeze, drawLatch, drawBeauty, drawGated, GATED, parse, loopPhase, recFill, noteName, st };
+    globalThis.TINYVOICE_SCOPE_FOR_TEST = { draw, drawFreeze, drawLatch, drawBeauty, drawGated, GATED, parse, loopPhase, recFill, noteName, st };
 })();

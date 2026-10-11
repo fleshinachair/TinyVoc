@@ -4,7 +4,7 @@
  * (dlopen by path, dlsym move_audio_fx_init_v2, create_instance) and exercises
  * every callback through the real ABI structs.
  *
- *   device_smoke /data/UserData/schwung/modules/audio_fx/tinyvoc/tinyvoc.so
+ *   device_smoke /data/UserData/schwung/modules/audio_fx/tinyvoice/tinyvoice.so
  *
  * Exits 0 only if everything works. Built and run by scripts/smoke_on_device.sh.
  */
@@ -67,7 +67,7 @@ int main(int argc, char **argv)
           api->set_param && api->get_param && api->on_midi);
     if (g_fail) return 1;
 
-    void *inst = api->create_instance("/data/UserData/schwung/modules/audio_fx/tinyvoc",
+    void *inst = api->create_instance("/data/UserData/schwung/modules/audio_fx/tinyvoice",
                                       "{\"mix\":0.8,\"unknown\":{\"x\":1}}");   /* config defaults path */
     CHECK(inst != NULL);
     if (!inst) return 1;
@@ -137,8 +137,8 @@ int main(int argc, char **argv)
     {   /* chain_params served by the DSP, with the widget's viz in it (that is what mounts canvas.js) */
         static char cp[8192];
         int m = api->get_param(inst, "chain_params", cp, sizeof cp);
-        CHECK(m > 0 && cp[0] == '[' && strstr(cp, "custom:tinyvoc_scope") != NULL);
-        printf("  chain_params served: %d bytes, widget declared: %s\n", m, strstr(cp, "custom:tinyvoc_scope") ? "yes" : "NO");
+        CHECK(m > 0 && cp[0] == '[' && strstr(cp, "custom:tinyvoice_scope") != NULL);
+        printf("  chain_params served: %d bytes, widget declared: %s\n", m, strstr(cp, "custom:tinyvoice_scope") ? "yes" : "NO");
     }
     n = api->get_param(inst, "scope", buf, sizeof buf);             /* the OLED widget's feed */
     printf("  scope: %s\n", buf);
@@ -146,7 +146,8 @@ int main(int argc, char **argv)
     api->on_midi(inst, off, 3, MOVE_MIDI_SOURCE_INTERNAL);
 
     /* Every mode runs on the real hardware: audible, and how long a block takes. */
-    static const char *const modes[] = {"Snap", "Robot", "Chords", "Morph", "Prism", "Double", "Tape"};
+    static const char *const modes[] = {"Robot", "Snap", "Chords", "Prism", "Tape", "Nightcall", "Scream", "Dalek",
+                                        "HardTune", "Harmony", "Walkie", "Morph", "Double"};
     for (int m = 0; m < (int)(sizeof modes / sizeof modes[0]); m++) {
         api->set_param(inst, "mode", modes[m]);
         char got[32];

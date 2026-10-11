@@ -1,4 +1,40 @@
-# TinyVoc v0.9.0 — Public Preview (Beta)
+# TinyVoice v1.0.0 — Public Preview (Beta)
+
+TinyVoc is now **TinyVoice** (module id `tinyvoice`, library `tinyvoice.so`, archive `TinyVoice.tar.gz`), and it grows from seven modes to eleven (thirteen with the two older ones kept): the vocoder modes gain a talkbox, and five voice transformers join them in one flat Mode list.
+
+**Upgrading.** TinyVoice is a different module id from TinyVoc, so it installs beside it; `scripts/install.sh` removes the old `tinyvoc` and `vocaltron` folders. A set saved with TinyVoc names the old id, so add TinyVoice to it again. A saved `state` loads: mode names are unchanged, and `Talkbox` still loads as the default mode.
+
+## What is new
+
+- **Nightcall** — a DigiTech-Talker-style talkbox on the vocoder engine: a narrow pulse carrier (12–28 % duty, 20 % at the middle of its knob) with about 10 % white noise, a steep 4th-order 250 Hz low-cut, a vocal-cavity peak at 1.2 kHz, a crisp high shelf, and 15–20 % of your own unvoiced breath (above 3.5 kHz) bled in. Pads play the carrier; a drone does if none is held.
+- **Scream** — real-time pitch and formant change (pitch-synchronous, PSOLA): −5 semitones, formants x0.8, a steep 350 Hz–3.4 kHz telephone band and asymmetric soft clipping.
+- **Dalek** — a single-sideband frequency shifter on a 4th-order IIR Hilbert pair (I and Q within 2° from 150 Hz to 6 kHz), linear −500 … +500 Hz, plus the classic 30 Hz ring modulator.
+- **HardTune** — the robotic quantizer: zero slew, to Key and Scale or to a held pad, formant preserved, 0–200 % correction depth.
+- **Harmony** — a three-tap granular stack (−12, +7, +12 st) with micro-delays, drift and panning. Held pads replace the taps with the chord's intervals above its lowest note. The grain is snapped to a whole number of your pitch periods, which keeps a held note phase-coherent through every cross-fade.
+- **Walkie** — a 1.8 kHz resonant horn, diode clipping with unequal forward drops, and a PTT squelch burst on every gate open and close.
+- **Prism is its own sound now**: the same hard-snapped harmony stack (Refract 0 is exactly the old engine), refracted — voices nudged off the semitone grid, a frequency-shifted pair so partials sit at non-integer multiples, and a slowly modulated comb (Shimmer). Chords stays strictly triadic.
+- **One home page.** The first page is now **Voice**: Mode, five contextual knobs named per mode, Mix and **Level**. Pitch (Key, Scale, Retune, Glide, scope, Beauty), Space (Delay, Feedback, Reverb, Spread, Tone, Demo, Freeze) and More (Gate, Latch) hold what you set once. In the older modes the last two contextual knobs are the same value as the Retune / Beauty / Glide / Tone / Delay knobs elsewhere.
+- **A −6.1 dBFS output ceiling** (`TINYVOICE_OUTPUT_HEADROOM`) on the new modes, after Spread, delay and reverb and before Level: nothing from a resonant peak, a squelch burst or distortion passes it at Level 0 dB. The older modes are unchanged.
+
+## Under the hood
+
+- New `voice.c` (Dalek, Harmony, Walkie) and `ssb.h` (Hilbert pair and phasor, shared with Prism); Nightcall is a flagged voicing of `daft.c` (checked against v0.9.0 on the same 2 s of input with pads: Robot's output is bit-identical, and so is every older mode at Spread 0, Prism at Refract 0; with Spread up the only change is the 10 ms smoothing of the chorus amount below); Scream and HardTune are modes of `modes.c`.
+- Every wet path under 15 ms (Harmony 12.1 ms worst case, Scream and HardTune under 11 ms at 70 Hz, Dalek 0.6 ms, the vocoders and Walkie none beyond their filters); the dry path is delay-compensated to match.
+- The Spread chorus amount is now smoothed (10 ms). It used to be zero while a vocoder ran and then jumped on, replaying the old engine's last 9 ms as a step on every Robot-to-pitch-mode switch.
+- Tests: about 2.02 million checks, including the Hilbert phase and gain, sideband rejection, ring sidebands, the squelch on both edges, harmony intervals (default and MIDI), measured latency, the telephone and talkbox responses, Prism's refraction, MIDI deafness of the pitch-agnostic modes, the −6.1 dBFS ceiling at extreme knob settings, and a finite / bounded / no-denormal sweep of every mode against noise, square waves, DC and impulses. The whole suite also runs clean under UBSan.
+- The build is `-std=c11 -Wall -Wextra -Werror -pedantic`.
+
+## Decisions to know about
+
+- **Morph and Double are kept**, after Walkie in the list: they were working modes, and the brief said to keep working code. Drop them from the Mode list in one place (`k_mode_opts` in `dsp.c`, `MODES` in the generator) if you want exactly eleven.
+- **Robot and Snap still follow pads.** The brief asked for them to ignore MIDI, but their pad behaviour is what they are (the carrier, the target note) and "retain exact existing behaviour" wins. Scream, Dalek, Walkie and Tape ignore pads, as asked; HardTune, Harmony and Nightcall use them.
+- **Scream is PSOLA, not WSOLA.** The existing pitch-synchronous voice already moves pitch and formant independently and reads the tracker's delay line; it is what Snap, Chords and Prism run on.
+- **The page layout is Voice / Pitch / Space / More**, not one page: the single page the brief describes does not exist in the codebase (it was three pages of 24 knobs), and Freeze, Reverb, Latch, Key, Scale, Gate and the rest are features. The home page is exactly the requested eight; the others are the menu behind the jog wheel, as before.
+- **Not run on a Move.** The device was not reachable while this was built: host-native tests and the cross-compile pass, `scripts/smoke_on_device.sh` has not been run with the new modes.
+
+---
+
+# TinyVoice v0.9.0 — Public Preview (Beta)
 
 A vocal processor for Ableton Move, as a [Schwung](https://github.com/charlesvestal/schwung) audio FX module. Sing into the Move, play the pads, and get a hard-tuned lead, a vocoder, a choir, a tape drop, a freeze loop and more — on 24 knobs over three pages.
 
@@ -51,15 +87,15 @@ This is the first public build. It works on a real Move and is covered by about 
 - Freeze is experimental: mono, 16-bit, no overdub or editing; behaviour with real voices is not tuned.
 - The consonant detector finds "s" and "t" reliably in tests; "k" is the weakest.
 - Pitch tracking works from about 70 Hz to 1 kHz; shifted voices are limited to ±1 octave.
-- Routing audio from other Move tracks into TinyVoc, and headset or external mics, are untested.
+- Routing audio from other Move tracks into TinyVoice, and headset or external mics, are untested.
 - No licence file yet — all rights reserved until one is added.
 
 ## Install
 
-Download `tinyvoc-v0.9.0.tar.gz`, then, with Schwung on your Move and SSH working:
+Download `tinyvoice-v0.9.0.tar.gz`, then, with Schwung on your Move and SSH working:
 
 ```bash
-ssh ableton@move.local "tar -C /data/UserData/schwung/modules/audio_fx -xzf - && chmod 755 /data/UserData/schwung/modules/audio_fx/tinyvoc/tinyvoc.so" < tinyvoc-v0.9.0.tar.gz
+ssh ableton@move.local "tar -C /data/UserData/schwung/modules/audio_fx -xzf - && chmod 755 /data/UserData/schwung/modules/audio_fx/tinyvoice/tinyvoice.so" < tinyvoice-v0.9.0.tar.gz
 ssh ableton@move.local "nohup /data/UserData/schwung/restart-move.sh >/dev/null 2>&1 &"
 ```
 

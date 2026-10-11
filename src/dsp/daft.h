@@ -9,8 +9,8 @@
  * biquad bandpasses (4th order) for steep skirts. Fixed-size state, no
  * allocation; embedded in vt_t.
  */
-#ifndef TINYVOC_DAFT_H
-#define TINYVOC_DAFT_H
+#ifndef TINYVOICE_DAFT_H
+#define TINYVOICE_DAFT_H
 
 #include "vt_floor.h"
 
@@ -30,6 +30,7 @@ extern "C" {
 
 typedef struct { float b0, b2, a1, a2; } daft_bq;      /* bandpass: b1 == 0 */
 typedef struct { float z1, z2; } daft_bqs;
+typedef struct { float b0, b1, b2, a1, a2; } daft_bqf;     /* general biquad (Nightcall's EQ) */
 
 typedef struct {
     int   note;                 /* last assigned note (for freq) */
@@ -102,7 +103,18 @@ typedef struct {
     int   ens_w;
     float ens_ph[2], ens_lp, k_ens_lp;
 
+    /* Talker (Nightcall, daft_set_talker): a DigiTech-Talker style voicing of
+     * the same vocoder. Off (0) for Robot: none of this is touched. */
+    int       talker;
+    float     duty;             /* carrier pulse width, 0.10..0.30 */
+    float     rasp;             /* white noise in the carrier, as a share of its level */
+    float     bleed;            /* unvoiced high-frequency modulator bled into the output */
+    float     cav_db, last_cav_db, tk_air_a;
+    daft_bqf  tk_eq[4];         /* 250 Hz low-cut x2 (4th order), 1.2 kHz cavity peak, high shelf */
+    daft_bqs  tk_z[2][4];       /* per channel */
+
     /* output leveller */
+    float lev_target, lev_ceil;
     float lev_ms, lev_pk, lev_gain;
     float k_lev_rms, k_lev_pk_r, k_lev_up, k_lev_down;
     int        drone_enabled;
@@ -126,6 +138,16 @@ void  daft_set_voice_present(daft_t *d, int present);
  * 5.5 kHz bled into the output (gated with it). Detune and band spread are set
  * by the caller through daft_set_params / daft_set_stereo. */
 void  daft_set_beauty(daft_t *d, float beauty);
+/* Nightcall's talkbox voicing. on 0 = plain vocoder (Robot). On: the carrier
+ * is a narrow pulse (duty 0.10..0.30) with `rasp` (~0.10) of white noise
+ * on top, the output goes through a steep 250 Hz low-cut, a vocal-cavity peak
+ * of cavity_db at 1.2 kHz and a crisp high shelf, and `bleed` (0.15..0.20) of the
+ * modulator's own > 3.5 kHz breath (weighted by the consonant detector) is mixed
+ * in; the output leveller aims 6 dB lower, so the peaks stay under the output
+ * ceiling. */
+void  daft_set_talker(daft_t *d, int on, float duty, float rasp, float bleed, float cavity_db);
+/* One carrier sample (voices + noise, before the bank): for tests. */
+float daft_carrier_sample(daft_t *d);
 /* Key the drone follows: root + fifth + octave (root 0 = C: C3 G3 C4, the default). */
 void  daft_set_drone_root(daft_t *d, int root);
 /* Assign slot `slot` to a MIDI note (note < 0 releases it). Call once per block. */

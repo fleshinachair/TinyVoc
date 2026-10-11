@@ -1,6 +1,7 @@
 /*
- * The PSOLA-based and effect modes: Snap, Morph, Prism, Double, Tape.
- * (Robot is daft.c; Chords is imogen.c.)
+ * The PSOLA-based and effect modes: Snap, Morph, Prism, Double, Tape,
+ * Scream, HardTune. (Robot and Nightcall are daft.c; Chords is imogen.c;
+ * Dalek, Harmony and Walkie are voice.c.)
  *
  * One fx_t serves whichever of these modes is active, so its PSOLA voices,
  * Haas lines and filters are shared rather than duplicated per mode. All of
@@ -13,12 +14,19 @@
  *   Prism   char1 harmony spread        char2 tape warmth            mod humanize
  *   Double  char1 double detune         char2 stereo width           mod drift
  *   Tape    char1 pitch -12..0 st       char2 wow & flutter          mod saturation
+ *   Scream  char1 pitch -12..+2 st (0.5 = -5)  char2 throat (formant scale, 0.5 = 0.8)
+ *           mod grit   char4 narrow (telephone band 350 Hz..3.4 kHz at 0.5)   char5 line hiss
+ *   HardTune char1 amount 0..200% (0.5 = full)  char2 formant -12..+12 st   mod vibrato
+ *           (char4 glide and char5 sensitivity live in dsp.c)
+ *   Prism   char4 refract (inharmonic glass: micro-tonal voice offsets, a frequency-shifted
+ *           pair, 0 = the plain harmonizer)   char5 shimmer (modulated comb)
  */
-#ifndef TINYVOC_MODES_H
-#define TINYVOC_MODES_H
+#ifndef TINYVOICE_MODES_H
+#define TINYVOICE_MODES_H
 
 #include "cher.h"
 #include "psola.h"
+#include "ssb.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +35,7 @@ extern "C" {
 #define FX_VOICES   4
 #define FX_MT_LEN 1024        /* Beauty micro-timing lines: up to ~23 ms */
 #define FX_HAAS_LEN 2048        /* power of two; Haas taps reach 25 ms + drift */
+#define FX_GLASS_LEN 512        /* power of two; Prism's comb lines reach ~7 ms */
 
 /* Snap's "space-age" voicing, fixed: a telephone band (4th-order 350 Hz
  * high-pass, 4th-order 5 kHz low-pass), a +4 dB bite at 2.5 kHz, and the
@@ -84,6 +93,21 @@ typedef struct {
     float mt[FX_VOICES][FX_MT_LEN], mt_d[FX_VOICES];   /* Prism: micro-timing per harmony voice */
     int   mt_w;
     float tape_phi;              /* Tape: delay-line shifter phase */
+
+    /* char4 / char5 (fx_set_extra) */
+    float char4, char5;
+    /* Scream: telephone band (4th-order high-pass + low-pass), grit, line hiss */
+    fx_svf_t scr[4];
+    float scr_hp, scr_lp;        /* the corner frequencies the sections are set to */
+    /* Prism glass: the harmony bus through a Hilbert pair, shifted up on one
+     * side and down on the other (non-integer partial ratios), then a slowly
+     * modulated pair of combs */
+    ssb_hilbert pg_hil;
+    ssb_osc pg_l, pg_r;
+    float pg_line[2][FX_GLASS_LEN];
+    int   pg_w;
+    float pg_amt, pg_amt_goal;   /* refract, smoothed */
+    unsigned pg_rng;
 } fx_t;
 
 void  fx_init(fx_t *fx, float sample_rate);
@@ -94,6 +118,10 @@ void  fx_init(fx_t *fx, float sample_rate);
  * up to 4 dB on 2.5-5 kHz harshness, a quiet Haas double. Prism: up to +40%
  * pan width, 8/10/12 ms micro-timing and +-4 ct detune on the harmonies. */
 static inline void fx_set_beauty(fx_t *fx, float b) { fx->beauty = b < 0.0f ? 0.0f : (b > 1.0f ? 1.0f : b); }
+
+/* char4 / char5 (0..1), once per block, after fx_set: Scream's narrow and line
+ * hiss, Prism's refract and shimmer. */
+void  fx_set_extra(fx_t *fx, float char4, float char5);
 
 void  fx_set(fx_t *fx, const cher_t *c, int mode, float char1, float char2, float mod,
              float spread, float glide_ms, int auto_on, int root, int scale,

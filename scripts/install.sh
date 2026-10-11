@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MODULE_ID=tinyvoc
+MODULE_ID=tinyvoice
 MOVE_HOST="${MOVE_HOST:-move.local}"
 MOVE_USER="${MOVE_USER:-ableton}"
 DEST="${DEST:-/data/UserData/schwung/modules/audio_fx/$MODULE_ID}"
@@ -20,9 +20,11 @@ echo "installing to $MOVE_USER@$MOVE_HOST:$DEST"
 # tar over ssh: no rsync/scp dependency, works from Git Bash on Windows.
 tar -C "$SRC" -cf - . | ssh "$MOVE_USER@$MOVE_HOST" "mkdir -p '$DEST' && rm -f '$DEST/dsp.so' '$DEST/ui.js' '$DEST/ui_chain.js' && tar -C '$DEST' -xf - && chmod 755 '$DEST'/*.so"
 
-# The module was called VocalTron (id "vocaltron") until it became TinyVoc.
-# Remove that old install so the browser doesn't list both.
-LEGACY_DIR="$(dirname "$DEST")/vocaltron"
-ssh "$MOVE_USER@$MOVE_HOST" "if [ -d '$LEGACY_DIR' ]; then rm -rf '$LEGACY_DIR' && echo 'removed the old $LEGACY_DIR'; fi"
+# The module was called VocalTron (id "vocaltron"), then TinyVoc (id "tinyvoc"),
+# until it became TinyVoice. Remove those old installs so the browser doesn't list them too.
+for OLD in vocaltron tinyvoc; do
+    LEGACY_DIR="$(dirname "$DEST")/$OLD"
+    ssh "$MOVE_USER@$MOVE_HOST" "if [ -d '$LEGACY_DIR' ]; then rm -rf '$LEGACY_DIR' && echo 'removed the old $LEGACY_DIR'; fi"
+done
 
 echo "done. Reload the module (or restart Schwung) to pick up the new $MODULE_ID.so."

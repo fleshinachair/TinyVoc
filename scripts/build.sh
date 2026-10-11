@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Cross-compile TinyVoc for Move (aarch64 Linux) with zig cc and package it.
+# Cross-compile TinyVoice for Move (aarch64 Linux) with zig cc and package it.
 #
-#   scripts/build.sh            -> build/tinyvoc/ + build/tinyvoc-module.tar.gz
+#   scripts/build.sh            -> build/tinyvoice/ + build/TinyVoice.tar.gz
 #
 # Env overrides: ZIG, TARGET, OPT
 set -euo pipefail
@@ -13,7 +13,7 @@ ZIG="${ZIG:-zig}"
 TARGET="${TARGET:-aarch64-linux-gnu.2.35}"
 OPT="${OPT:--O2}"
 
-MODULE_ID=tinyvoc
+MODULE_ID=tinyvoice
 OUT="$ROOT/build/$MODULE_ID"
 
 command -v "$ZIG" >/dev/null || { echo "zig not found (https://ziglang.org/download/)" >&2; exit 1; }
@@ -24,9 +24,9 @@ mkdir -p "$OUT"
 
 # No -ffast-math: it lets the compiler pull in libmvec, which the device lacks.
 "$ZIG" cc -target "$TARGET" $OPT -shared -fPIC -fvisibility=hidden \
-    -Wall -Wextra -Wno-unused-parameter \
+    -std=c11 -Wall -Wextra -Werror -pedantic \
     -I"$ROOT/src/host" -I"$ROOT/src/dsp" \
-    "$ROOT/src/dsp/dsp.c" "$ROOT/src/dsp/cher.c" "$ROOT/src/dsp/daft.c" "$ROOT/src/dsp/imogen.c" "$ROOT/src/dsp/psola.c" "$ROOT/src/dsp/modes.c" "$ROOT/src/dsp/freeze.c" "$ROOT/src/dsp/demo.c" "$ROOT/src/dsp/verb.c" "$ROOT/src/dsp/plugin.c" \
+    "$ROOT/src/dsp/dsp.c" "$ROOT/src/dsp/cher.c" "$ROOT/src/dsp/daft.c" "$ROOT/src/dsp/imogen.c" "$ROOT/src/dsp/psola.c" "$ROOT/src/dsp/modes.c" "$ROOT/src/dsp/freeze.c" "$ROOT/src/dsp/demo.c" "$ROOT/src/dsp/voice.c" "$ROOT/src/dsp/verb.c" "$ROOT/src/dsp/plugin.c" \
     -o "$OUT/$MODULE_ID.so" -lm
 chmod 755 "$OUT/$MODULE_ID.so"
 
@@ -47,6 +47,9 @@ if command -v nm >/dev/null; then
     fi
 fi
 
-tar -C "$ROOT/build" -czf "$ROOT/build/$MODULE_ID-module.tar.gz" "$MODULE_ID"
+# The archive is named for the module; inside it the folder is the module id (the host needs folder == id).
+ARCHIVE=TinyVoice.tar.gz
+rm -f "$ROOT/build/$MODULE_ID-module.tar.gz"
+tar -C "$ROOT/build" -czf "$ROOT/build/$ARCHIVE" "$MODULE_ID"
 echo "built $OUT/$MODULE_ID.so ($TARGET)"
-echo "package build/$MODULE_ID-module.tar.gz"
+echo "package build/$ARCHIVE"

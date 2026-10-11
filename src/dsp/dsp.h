@@ -1,5 +1,5 @@
 /*
- * TinyVoc engine interface (host-independent).
+ * TinyVoice engine interface (host-independent).
  *
  * This header knows nothing about Schwung. src/dsp/plugin.c adapts it to the
  * audio_fx_api_v2 ABI, and tests/ links it directly.
@@ -8,8 +8,8 @@
  * ~2.3 ms per 128-frame block): after dsp_init() nothing here may allocate,
  * lock, or do I/O. All buffers are sized in dsp_init().
  */
-#ifndef TINYVOC_DSP_H
-#define TINYVOC_DSP_H
+#ifndef TINYVOICE_DSP_H
+#define TINYVOICE_DSP_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -32,7 +32,7 @@ extern "C" {
  * and MORE in scripts/gen_module_json.py. char1/char2/mod are 0..1 macros
  * whose meaning (and served knob name) depends on the mode. */
 typedef enum {
-    VT_P_MODE = 0,    /* enum  Snap, Robot, Chords, Morph, Prism, Double, Tape */
+    VT_P_MODE = 0,    /* enum  the 11 modes below, then Morph and Double */
     VT_P_KEY,           /* enum  C..B: the key, set by hand (Move does not share its project key) */
     VT_P_SCALE,         /* enum  Chromatic, Major, Minor, Pentatonic, Dorian */
     VT_P_RETUNE,        /* ms 0..500, 0 = instant hard snap */
@@ -54,6 +54,8 @@ typedef enum {
     VT_P_FREEZE_LEN,    /* enum  Free, 1 Bar, 2 Bars, 4 Bars: Rec stops itself after that many bars */
     VT_P_BEAUTY,        /* 0..1 per-mode polish (stereo, detune, air, warmth); 0 = the dry engine */
     VT_P_LATCH,         /* enum  Off, On: Robot/Chords/Prism keep the last pad chord after release */
+    VT_P_CHAR4,         /* macro 4 (the VOICE page's knob 5): per mode, a new control or an alias of an old param */
+    VT_P_CHAR5,         /* macro 5 (knob 6) */
     /* Performance toggles (knobs on SPACE), not saved in "state" */
     VT_P_FREEZE,       /* enum  Off, On: loop the last 4 s of input into the engine */
     VT_P_DEMO,          /* enum  Off, On: built-in sung phrase, modes advance every 4 bars */
@@ -61,29 +63,62 @@ typedef enum {
 } vt_param_id;
 
 /*
- * Macro map for Robot and Chords (the others are in modes.h):
- *   Robot   char1 formant -12..+12 st (synthesis bank centres)   char2 sibilance noise
- *           mod VP-330 ensemble chorus      spread odd/even band panning (instead of ADT)
- *   Chords  char1 harmony level (0..2x)    char2 voicing (<0.5 standard, else wide)   mod humanize
+ * Modes, in the order of the Mode knob: the vocoder and carrier modes first
+ * (Robot, Snap, Chords, Prism, Tape, Nightcall), then the voice transformers
+ * (Scream, Dalek, HardTune, Harmony, Walkie). Morph and Double are the two
+ * older PSOLA modes: still here, after the roster.
+ *
+ * The VOICE page is Mode, five contextual knobs (char1 char2 mod char4 char5),
+ * Mix, Level (gain). The five are named per mode (k_macro_names in dsp.c):
+ *   Robot     Shift Noise Ensemble          Beauty* Glide*
+ *   Snap      Formant Sensitivity Vibrato   Retune* Beauty*
+ *   Chords    Level Voicing Humanize        Retune* Beauty*
+ *   Prism     Voicing Warmth Humanize       Refract Shimmer
+ *   Tape      Drop Flutter Saturate         Tone* Echo*
+ *   Nightcall Formant Breath Rasp           Duty Cavity
+ *   Scream    Pitch Throat Grit             Narrow Line
+ *   Dalek     Shift Ring Metal              Drive Width
+ *   HardTune  Amount Formant Vibrato        Glide* Sens
+ *   Harmony   Lead Stack Detune             Grain Micro
+ *   Walkie    Peak Drive Static             Squelch Band
+ *   Morph     Throat Drive Wobble           Retune* Glide*
+ *   Double    Detune Width Drift            Retune* Glide*
+ * (* an alias of the param of that name: the same value, read and written
+ * from either knob; see slot_alias in dsp.c.)
  */
 typedef enum {
-    VT_MODE_SNAP = 0, VT_MODE_ROBOT, VT_MODE_CHORDS, VT_MODE_MORPH,
-    VT_MODE_PRISM, VT_MODE_DOUBLE, VT_MODE_TAPE, VT_MODE_COUNT   /* Talkbox removed 2026-10-09 */
+    VT_MODE_ROBOT = 0, VT_MODE_SNAP, VT_MODE_CHORDS, VT_MODE_PRISM, VT_MODE_TAPE, VT_MODE_NIGHTCALL,
+    VT_MODE_SCREAM, VT_MODE_DALEK, VT_MODE_HARDTUNE, VT_MODE_HARMONY, VT_MODE_WALKIE,
+    VT_MODE_MORPH, VT_MODE_DOUBLE, VT_MODE_COUNT   /* Talkbox removed 2026-10-09 */
 } vt_mode;
+#define VT_MACROS 5       /* char1, char2, mod, char4, char5 */
+
+/* Modes whose output stage keeps its peaks under TINYVOICE_OUTPUT_HEADROOM. */
+static inline int vt_mode_headroom(int mode)
+{
+    return mode == VT_MODE_NIGHTCALL || (mode >= VT_MODE_SCREAM && mode <= VT_MODE_WALKIE);
+}
+/* The ceiling those modes keep into the master buffer: -6.1 dBFS (10^(-6.1/20)).
+ * Applied after Spread, delay and reverb and before Level, so at Level 0 dB no
+ * peak passes it. */
+#define TINYVOICE_OUTPUT_HEADROOM 0.4955f
+
 /* Does this knob do anything in this mode? Where not, the screen shows "N/A"
  * (canvas.js carries the same table) and the DSP ignores turns of it.
- *   Key     everywhere but Tape (a fixed drop: no quantizer); Robot's drone uses it
- *   Scale   not Robot (the drone is root + fifth + octave in any scale), not Tape
- *   Retune  Snap, Chords, Morph, Double (Prism is a fixed 0 ms snap; Robot and Tape have no lead)
- *   Glide   everywhere but Tape (no pad targets)
- *   Beauty  Snap, Robot, Chords, Prism (Morph, Double and Tape never read it) */
+ *   Key     Robot (the drone), Snap, Chords, Prism, Nightcall (the drone), HardTune, Morph, Double
+ *   Scale   the pitch-snapping modes: Snap, Chords, Prism, HardTune, Morph, Double
+ *   Retune  Snap, Chords, Morph, Double (Prism is a fixed 0 ms snap, HardTune is instant)
+ *   Glide   Robot, Snap, Chords, Prism, Nightcall (carrier), HardTune, Morph, Double
+ *   Beauty  Snap, Robot, Chords, Prism (the other engines never read it) */
 static inline int vt_param_acts(int id, int mode)
 {
+    const int pad_lead = mode == VT_MODE_SNAP || mode == VT_MODE_CHORDS || mode == VT_MODE_PRISM ||
+                         mode == VT_MODE_MORPH || mode == VT_MODE_DOUBLE || mode == VT_MODE_HARDTUNE;
     switch (id) {
-    case VT_P_KEY:    return mode != VT_MODE_TAPE;
-    case VT_P_SCALE:  return mode != VT_MODE_ROBOT && mode != VT_MODE_TAPE;
+    case VT_P_KEY:    return pad_lead || mode == VT_MODE_ROBOT || mode == VT_MODE_NIGHTCALL;
+    case VT_P_SCALE:  return pad_lead;
     case VT_P_RETUNE: return mode == VT_MODE_SNAP || mode == VT_MODE_CHORDS || mode == VT_MODE_MORPH || mode == VT_MODE_DOUBLE;
-    case VT_P_GLIDE:  return mode != VT_MODE_TAPE;
+    case VT_P_GLIDE:  return pad_lead || mode == VT_MODE_ROBOT || mode == VT_MODE_NIGHTCALL;
     case VT_P_BEAUTY: return mode == VT_MODE_SNAP || mode == VT_MODE_ROBOT || mode == VT_MODE_CHORDS || mode == VT_MODE_PRISM;
     default:          return 1;
     }
@@ -155,7 +190,7 @@ void dsp_set_transport(vt_t *vt, double beat);
 /* Introspection (tests, UI plumbing). */
 const vt_param_def *dsp_param_def(int id);          /* NULL if out of range */
 int   dsp_param_index(const char *key);             /* -1 if unknown */
-/* Knob name of macro `which` (0 char1, 1 char2, 2 mod) in `mode`; NULL if out of range. */
+/* Knob name of macro `which` (0 char1, 1 char2, 2 mod, 3 char4, 4 char5) in `mode`; NULL if out of range. */
 const char *dsp_macro_name(int mode, int which);
 int   dsp_active_voices(const vt_t *vt);
 
@@ -169,4 +204,4 @@ int   dsp_active_voices(const vt_t *vt);
 #ifdef __cplusplus
 }
 #endif
-#endif /* TINYVOC_DSP_H */
+#endif /* TINYVOICE_DSP_H */

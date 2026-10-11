@@ -4,3 +4,4 @@
 *.mjs text eol=lf
 *.js text eol=lf
 *.json text eol=lf
+Makefile text eol=lf
