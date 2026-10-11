@@ -1,8 +1,8 @@
 # TinyVoice v1.0.0 — Public Preview (Beta)
 
-TinyVoc is now **TinyVoice** (module id `tinyvoice`, library `tinyvoice.so`, archive `TinyVoice.tar.gz`), and it grows from seven modes to eleven (thirteen with the two older ones kept): the vocoder modes gain a talkbox, and five voice transformers join them in one flat Mode list.
+TinyVoice (module id `tinyvoice`, library `tinyvoice.so`, archive `TinyVoice.tar.gz`) grows from seven modes to eleven (thirteen with the two older ones kept): the vocoder modes gain a talkbox, and five voice transformers join them in one flat Mode list.
 
-**Upgrading.** TinyVoice is a different module id from TinyVoc, so it installs beside it; `scripts/install.sh` removes the old `tinyvoc` and `vocaltron` folders. A set saved with TinyVoc names the old id, so add TinyVoice to it again. A saved `state` loads: mode names are unchanged, and `Talkbox` still loads as the default mode.
+**Upgrading.** This release uses a new module id, so it installs beside any earlier preview; `scripts/install.sh` removes the old install folders. A set saved with an earlier preview names the old id, so add TinyVoice to it again. A saved `state` loads: mode names are unchanged, and `Talkbox` still loads as the default mode.
 
 ## What is new
 
@@ -23,7 +23,6 @@ TinyVoc is now **TinyVoice** (module id `tinyvoice`, library `tinyvoice.so`, arc
 - The Spread chorus amount is now smoothed (10 ms). It used to be zero while a vocoder ran and then jumped on, replaying the old engine's last 9 ms as a step on every Robot-to-pitch-mode switch.
 - Tests: about 2.02 million checks, including the Hilbert phase and gain, sideband rejection, ring sidebands, the squelch on both edges, harmony intervals (default and MIDI), measured latency, the telephone and talkbox responses, Prism's refraction, MIDI deafness of the pitch-agnostic modes, the −6.1 dBFS ceiling at extreme knob settings, and a finite / bounded / no-denormal sweep of every mode against noise, square waves, DC and impulses. The whole suite also runs clean under UBSan.
 - The build is `-std=c11 -Wall -Wextra -Werror -pedantic`. A `Makefile` adds `make test` and `make arm` (it just calls the scripts; pinned to LF line endings).
-- The GitHub repository is renamed from TinyVoc to TinyVoice (the old URL redirects).
 
 ## Decisions to know about
 
