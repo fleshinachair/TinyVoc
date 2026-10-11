@@ -196,14 +196,14 @@ make install                      # = bash scripts/install.sh --build: sideload 
 bash scripts/smoke_on_device.sh   # runs every mode on the Move itself and times it
 ```
 
-The first build downloads Schwung's two ABI headers into `src/host/` (`scripts/fetch_host_headers.sh`; pin a version with `SCHWUNG_REF`). On the Move every mode should run well inside the ~2.3 ms of a 128-frame audio block (the older modes measure 0.2–0.6 ms; the new ones cost the same or less natively).
+The first build downloads Schwung's two ABI headers into `src/host/` (`scripts/fetch_host_headers.sh`; pin a version with `SCHWUNG_REF`). On the Move every mode runs well inside the ~2.3 ms of a 128-frame audio block: 0.10–0.50 ms measured (Prism is the heaviest at 0.50; Dalek and Walkie the lightest at about 0.1).
 
 The architecture, signal flow, ABI notes and every parameter are in [CLAUDE.md](CLAUDE.md).
 
 ## Known limitations
 
 - Tuned on synthetic voices and measured with a built-in mic; real-voice tuning of every mode is still to do.
-- The on-screen widgets, the Voice / Pitch / Space / More layout and the per-mode knob names are tested against a mock display, not yet by eye on a Move; Demo's on-screen mode stepping is unconfirmed on hardware. The v1.0 modes have **not** been run on the device yet (the host-native tests and the cross-compile pass; `scripts/smoke_on_device.sh` still has to be run).
+- The on-screen widgets, the Voice / Pitch / Space / More layout and the per-mode knob names are tested against a mock display, not yet by eye on a Move; Demo's on-screen mode stepping is unconfirmed on hardware. On a Move, the on-device smoke test passes for all 13 modes (loads, audible, 0.10-0.50 ms per 128-frame block), but the new modes have not been judged by ear on a real voice yet.
 - Pitch tracking covers about 70 Hz–1 kHz, shifted voices ±1 octave. Scream is a pitch-synchronous (PSOLA) shifter rather than WSOLA; Harmony's grain follows your pitch (it needs a tracked voice to stay phase-coherent).
 - Robot and Snap still follow pads (their pad behaviour is part of what they are); only Scream, Dalek, Walkie and Tape ignore them.
 - Freeze is experimental (see above). Headsets, external mics and routing other tracks into TinyVoice are untested.

@@ -22,7 +22,8 @@ TinyVoc is now **TinyVoice** (module id `tinyvoice`, library `tinyvoice.so`, arc
 - Every wet path under 15 ms (Harmony 12.1 ms worst case, Scream and HardTune under 11 ms at 70 Hz, Dalek 0.6 ms, the vocoders and Walkie none beyond their filters); the dry path is delay-compensated to match.
 - The Spread chorus amount is now smoothed (10 ms). It used to be zero while a vocoder ran and then jumped on, replaying the old engine's last 9 ms as a step on every Robot-to-pitch-mode switch.
 - Tests: about 2.02 million checks, including the Hilbert phase and gain, sideband rejection, ring sidebands, the squelch on both edges, harmony intervals (default and MIDI), measured latency, the telephone and talkbox responses, Prism's refraction, MIDI deafness of the pitch-agnostic modes, the −6.1 dBFS ceiling at extreme knob settings, and a finite / bounded / no-denormal sweep of every mode against noise, square waves, DC and impulses. The whole suite also runs clean under UBSan.
-- The build is `-std=c11 -Wall -Wextra -Werror -pedantic`.
+- The build is `-std=c11 -Wall -Wextra -Werror -pedantic`. A `Makefile` adds `make test` and `make arm` (it just calls the scripts; pinned to LF line endings).
+- The GitHub repository is renamed from TinyVoc to TinyVoice (the old URL redirects).
 
 ## Decisions to know about
 
@@ -30,7 +31,7 @@ TinyVoc is now **TinyVoice** (module id `tinyvoice`, library `tinyvoice.so`, arc
 - **Robot and Snap still follow pads.** The brief asked for them to ignore MIDI, but their pad behaviour is what they are (the carrier, the target note) and "retain exact existing behaviour" wins. Scream, Dalek, Walkie and Tape ignore pads, as asked; HardTune, Harmony and Nightcall use them.
 - **Scream is PSOLA, not WSOLA.** The existing pitch-synchronous voice already moves pitch and formant independently and reads the tracker's delay line; it is what Snap, Chords and Prism run on.
 - **The page layout is Voice / Pitch / Space / More**, not one page: the single page the brief describes does not exist in the codebase (it was three pages of 24 knobs), and Freeze, Reverb, Latch, Key, Scale, Gate and the rest are features. The home page is exactly the requested eight; the others are the menu behind the jog wheel, as before.
-- **Not run on a Move.** The device was not reachable while this was built: host-native tests and the cross-compile pass, `scripts/smoke_on_device.sh` has not been run with the new modes.
+- **Verified on a Move, not yet by ear.** The package was installed on a Move and `scripts/smoke_on_device.sh` passes: all 13 modes load, are audible and take 0.10–0.50 ms per 128-frame block (Prism 0.50 the heaviest; Nightcall 0.18, Scream 0.33, Dalek 0.10, HardTune 0.31, Harmony 0.35, Walkie 0.11; the budget is ~2.3 ms). The on-screen layout and how the new modes sound on a real voice are still to be checked.
 
 ---
 
