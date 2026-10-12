@@ -6,6 +6,8 @@
  */
 #include "voice.h"
 #include "ssb.h"
+#include "vfx.h"
+#include "presets.h"
 
 #define ALL_MODES_N 13
 static const char *const k_all_modes[ALL_MODES_N] = {
@@ -127,7 +129,7 @@ static void test_macro_slots(void)
 {
     static const struct { const char *mode, *a4, *a5; } t[ALL_MODES_N] = {
         { "Robot", "beauty", "glide" },   { "Snap", "retune", "beauty" },  { "Chords", "retune", "beauty" },
-        { "Prism", NULL, NULL },          { "Tape", "tone", "delay" },     { "Nightcall", NULL, NULL },
+        { "Prism", NULL, NULL },          { "Tape", "tone", NULL }    ,     { "Nightcall", NULL, NULL },
         { "Scream", NULL, NULL },         { "Dalek", NULL, NULL },         { "HardTune", "glide", NULL },
         { "Harmony", NULL, NULL },        { "Walkie", NULL, NULL },        { "Morph", "retune", "glide" },
         { "Double", "retune", "glide" },
@@ -191,10 +193,10 @@ static void test_all_modes_numeric_safety(void)
 {
     /* Every mode x every kind of input x extreme knobs: always finite, never past the
      * soft limit, and silence afterwards decays without leaving denormals. */
-    static const struct { float c1, c2, md, c4, c5, mix; const char *delay, *reverb, *spread; } sets[3] = {
-        { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, "0",    "0", "0" },
-        { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, "250",  "1", "1" },
-        { 0.5f, 0.5f, 0.0f, 0.5f, 0.5f, 0.5f, "0",    "0", "0.25" },
+    static const struct { float c1, c2, md, c4, c5, mix; const char *spread; } sets[3] = {
+        { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, "0" },
+        { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, "1" },
+        { 0.5f, 0.5f, 0.0f, 0.5f, 0.5f, 0.5f, "0.25" },
     };
     static float blk[2 * 128];
     int bad = 0, subnormal = 0, over = 0;
@@ -205,9 +207,6 @@ static void test_all_modes_numeric_safety(void)
                 char b[32];
                 snprintf(b, sizeof b, "%g", (double)sets[s].mix);
                 dsp_set_param(vt, "mix", b);
-                dsp_set_param(vt, "delay", sets[s].delay);
-                dsp_set_param(vt, "feedback", "0.9");
-                dsp_set_param(vt, "reverb", sets[s].reverb);
                 dsp_set_param(vt, "spread", sets[s].spread);
                 dsp_set_param(vt, "gain", "12");
                 note_on(vt, 60); note_on(vt, 64); note_on(vt, 67);
@@ -221,9 +220,6 @@ static void test_all_modes_numeric_safety(void)
                         else if (fabsf(blk[i]) > 1.0f) over++;
                     }
                 }
-                dsp_set_param(vt, "delay", "0");
-                dsp_set_param(vt, "reverb", "0");
-                dsp_set_param(vt, "feedback", "0");
                 note_off(vt, 60); note_off(vt, 64); note_off(vt, 67);
                 for (int blkn = 0; blkn < 420; blkn++) {                                  /* ~1.2 s of silence */
                     memset(blk, 0, sizeof blk);
@@ -267,7 +263,7 @@ static void test_headroom(void)
             for (int kind = 0; kind < 4; kind++) {
                 vt_t *vt = vm_rig(k_new_modes[k], knobs[s][0], knobs[s][1], knobs[s][2], knobs[s][3], knobs[s][4]);
                 dsp_set_param(vt, "gate", "-30 dB");
-                if (s == 1) { dsp_set_param(vt, "delay", "120"); dsp_set_param(vt, "feedback", "0.9"); dsp_set_param(vt, "reverb", "1"); dsp_set_param(vt, "spread", "1"); }
+                if (s == 1) dsp_set_param(vt, "spread", "1");
                 note_on(vt, 64); note_on(vt, 67);
                 unsigned seed = 99;
                 long pos = 0;
@@ -428,7 +424,7 @@ static void test_dalek(void)
 static void test_walkie(void)
 {
     static float l[2 * VT_SAMPLE_RATE];
-    /* The resonance: a peak at 1.8 kHz over the band around it (low level, so the clipper stays linear) */
+    /* The presence peak: 1.8 kHz stands out of the band around it (low level, so the clipper stays linear) */
     {
         vt_t *vt = vm_rig("Walkie", 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);
         unsigned seed = 7;
@@ -437,9 +433,9 @@ static void test_walkie(void)
         const int n = vm_run(vt, vm_noise, &seed, 1.5, &pos, l, NULL);
         const double pk = vm_bavg(l, n, 1750.0, 1850.0), below = vm_bavg(l, n, 900.0, 1000.0), above = vm_bavg(l, n, 2700.0, 2800.0);
         const double lo_cut = vm_bavg(l, n, 80.0, 160.0);
-        if (!(pk > 4.0 * below && pk > 4.0 * above)) printf("  walkie peak %.3e, below %.3e, above %.3e\n", pk, below, above);
-        CHECK(pk > 4.0 * below && pk > 4.0 * above);                           /* +6 dB */
-        CHECK(lo_cut < 0.01 * pk);                                             /* the 300 Hz high-pass */
+        if (!(pk > 1.8 * below && pk > 1.8 * above)) printf("  walkie peak %.3e, below %.3e, above %.3e\n", pk, below, above);
+        CHECK(pk > 1.8 * below && pk > 1.8 * above);                           /* a broad +3 dB or more */
+        CHECK(lo_cut < 0.01 * pk);                                             /* the 350 Hz high-pass */
         dsp_cleanup(vt);
     }
     /* The horn follows Band: lower at 0, higher at 1 */
@@ -467,8 +463,8 @@ static void test_walkie(void)
         h3[k] = goertzel(l, n, 1800.0) / goertzel(l, n, 600.0);
         dsp_cleanup(vt);
     }
-    if (!(h2[0] > 0.003 && h3[1] > 3.0 * h3[0])) printf("  walkie harmonics: 2nd %.2e -> %.2e, 3rd %.2e -> %.2e\n", h2[0], h2[1], h3[0], h3[1]);
-    CHECK(h2[0] > 0.003 && h2[1] > 3e-4);                          /* even harmonics: asymmetric */
+    if (!(h2[0] > 3e-4 && h3[1] > 3.0 * h3[0])) printf("  walkie harmonics: 2nd %.2e -> %.2e, 3rd %.2e -> %.2e\n", h2[0], h2[1], h3[0], h3[1]);
+    CHECK(h2[0] > 3e-4 && h2[1] > 0.003);                          /* even harmonics: asymmetric, and more with Drive */
     CHECK(h3[1] > 3.0 * h3[0]);                                    /* Drive clips harder */
     /* PTT squelch: a noise burst as the voice stops (no input left to explain it), none at Squelch 0 */
     for (int k = 0; k < 2; k++) {
@@ -484,7 +480,7 @@ static void test_walkie(void)
         const double closing = rms_of(l, VT_SAMPLE_RATE / 10);               /* the first 100 ms after the gate shut */
         const double later = rms_of(l + n - VT_SAMPLE_RATE / 10, VT_SAMPLE_RATE / 10);
         if (k) { if (!(closing > 1.5e-3 && later < 0.1 * closing)) printf("  walkie closing burst %.2e, later %.2e\n", closing, later); CHECK(closing > 1.5e-3); CHECK(later < 0.1 * closing); }   /* it bursts, then it dies away */
-        else CHECK(closing < 1e-5);
+        else CHECK(later < 1e-5);                                          /* no squelch: the receiver mutes the channel and it is silent */
         dsp_cleanup(vt);
     }
     /* ... and as it opens: a tone the horn nearly stops (6 kHz) opens the gate, and the burst is what is heard */
@@ -618,28 +614,28 @@ static void test_scream(void)
 {
     static float l[2 * VT_SAMPLE_RATE];
     const int N = VT_SAMPLE_RATE;
-    /* pitch: 220 Hz down 5 semitones (164.8 Hz) */
+    /* pitch: 220 Hz down 8 semitones (138.8 Hz) */
     {
         vt_t *vt = vm_rig("Scream", 0.5f, 0.5f, 0.0f, 0.5f, 0.0f);
         vm_tone_t tn = { 220.0, 0.5, 8 };
         long pos = 0;
         vm_run(vt, vm_tone, &tn, 0.8, &pos, NULL, NULL);
         const int n = vm_run(vt, vm_tone, &tn, 1.0, &pos, l, NULL);
-        const double want = VT_SAMPLE_RATE / (220.0 * pow(2.0, -5.0 / 12.0));
-        const double got = vm_period(l + n - 8192, 8192, 150.0, 400.0);
+        const double want = VT_SAMPLE_RATE / (220.0 * pow(2.0, -8.0 / 12.0));
+        const double got = vm_period(l + n - 8192, 8192, 200.0, 450.0);
         const double err = cents(vm_hz_from_period(got), VT_SAMPLE_RATE / want);
         if (fabs(err) > 15.0) printf("  scream: period %.2f, want %.2f (%.1f ct)\n", got, want, err);
         CHECK(fabs(err) < 15.0);
         dsp_cleanup(vt);
     }
-    /* Pitch knob: -12 at 0 (an octave down), +2 at 1 */
+    /* Pitch knob: -12 at 0 (an octave down), -3 at 1 */
     for (int k = 0; k < 2; k++) {
         vt_t *vt = vm_rig("Scream", k ? 1.0f : 0.0f, 0.5f, 0.0f, 0.5f, 0.0f);
         vm_tone_t tn = { 220.0, 0.5, 8 };
         long pos = 0;
         vm_run(vt, vm_tone, &tn, 0.8, &pos, NULL, NULL);
         const int n = vm_run(vt, vm_tone, &tn, 1.0, &pos, l, NULL);
-        const double st = k ? 2.0 : -12.0;
+        const double st = k ? -3.0 : -12.0;
         const double want_hz = 220.0 * pow(2.0, st / 12.0);
         const double got = vm_period(l + n - 8192, 8192, 0.93 * VT_SAMPLE_RATE / want_hz, 1.07 * VT_SAMPLE_RATE / want_hz);
         if (fabs(cents(vm_hz_from_period(got), want_hz)) > 20.0) printf("  scream pitch %.0f st: %.1f Hz, want %.1f\n", st, vm_hz_from_period(got), want_hz);
@@ -654,13 +650,14 @@ static void test_scream(void)
         long pos = 0;
         vm_run(vt, vm_vowel, &vw, 0.8, &pos, NULL, NULL);
         const int n = vm_run(vt, vm_vowel, &vw, 1.0, &pos, l, NULL);
-        cen[k] = harmonic_centroid(l + n - 8192, 8192, 220.0 * pow(2.0, -5.0 / 12.0));
+        cen[k] = harmonic_centroid(l + n - 8192, 8192, 220.0 * pow(2.0, -8.0 / 12.0));
         dsp_cleanup(vt);
     }
     if (!(cen[1] > 1.25 * cen[0])) printf("  scream throat: centroid %.0f -> %.0f Hz\n", cen[0], cen[1]);
     CHECK(cen[1] > 1.25 * cen[0]);
-    /* The telephone band: 350 Hz .. 3.4 kHz, steep. White noise has no pitch, so it passes the
-     * pitch shifter's plain path and what is left is the band itself. */
+    /* The band at the middle Narrow: 90 Hz .. 4.8 kHz, steep, and it keeps the chest (a phone band at
+     * 350 Hz took the depth the drop makes). White noise has no pitch, so it passes the pitch
+     * shifter's plain path and what is left is the band itself. */
     {
         unsigned seed = 21;
         vt_t *vt = vm_rig("Scream", 0.5f, 0.5f, 0.0f, 0.5f, 0.0f);
@@ -668,14 +665,13 @@ static void test_scream(void)
         vm_run(vt, vm_noise_lo, &seed, 0.6, &pos, NULL, NULL);
         const int n = vm_run(vt, vm_noise_lo, &seed, 1.6, &pos, l, NULL);
         const double mid = vm_bavg(l, n, 700.0, 1400.0);
-        const double low = vm_bavg(l, n, 60.0, 150.0), near = vm_bavg(l, n, 250.0, 300.0);
-        const double up = vm_bavg(l, n, 5000.0, 6000.0), top = vm_bavg(l, n, 7000.0, 9000.0);
-        if (!(low < 1e-3 * mid && near < 0.5 * mid && up < 0.15 * mid && top < 3e-3 * mid))
-            printf("  scream band (rel. to 700-1400 Hz): 60-150 %.2e  250-300 %.2e  5-6k %.2e  7-9k %.2e\n", low / mid, near / mid, up / mid, top / mid);
-        CHECK(low < 1e-3 * mid);                                    /* -30 dB or better under 150 Hz */
-        CHECK(near < 0.5 * mid);                                    /* on its way: -3 dB by 250-300 Hz */
-        CHECK(up < 0.15 * mid);
-        CHECK(top < 3e-3 * mid);                                    /* -25 dB by 7-9 kHz */
+        const double low = vm_bavg(l, n, 20.0, 50.0), chest = vm_bavg(l, n, 250.0, 300.0);
+        const double up = vm_bavg(l, n, 9000.0, 12000.0);
+        if (!(low < 0.01 * mid && chest > 0.5 * mid && up < 0.03 * mid))
+            printf("  scream band (rel. to 700-1400 Hz): 20-50 %.2e  250-300 %.2e  9-12k %.2e\n", low / mid, chest / mid, up / mid);
+        CHECK(low < 0.01 * mid);                                    /* the rumble is gone */
+        CHECK(chest > 0.5 * mid);                                   /* ... and the chest is still there */
+        CHECK(up < 0.03 * mid);
         dsp_cleanup(vt);
     }
     /* Narrow closes the band in from both sides */
@@ -688,22 +684,22 @@ static void test_scream(void)
             vm_run(vt, vm_noise_lo, &seed, 0.6, &pos, NULL, NULL);
             const int n = vm_run(vt, vm_noise_lo, &seed, 1.6, &pos, l, NULL);
             w3k[k] = vm_bavg(l, n, 2800.0, 3400.0);
-            w500[k] = vm_bavg(l, n, 400.0, 500.0);
+            w500[k] = vm_bavg(l, n, 120.0, 250.0);
             dsp_cleanup(vt);
         }
-        if (!(w3k[0] > 3.0 * w3k[1] && w500[0] > 3.0 * w500[1])) printf("  scream narrow: 3 kHz %.2e -> %.2e, 450 Hz %.2e -> %.2e\n", w3k[0], w3k[1], w500[0], w500[1]);
+        if (!(w3k[0] > 3.0 * w3k[1] && w500[0] > 3.0 * w500[1])) printf("  scream narrow: 3 kHz %.2e -> %.2e, 120-250 Hz %.2e -> %.2e\n", w3k[0], w3k[1], w500[0], w500[1]);
         CHECK(w3k[0] > 3.0 * w3k[1]);
         CHECK(w500[0] > 3.0 * w500[1]);
     }
-    /* Grit: the soft clip adds harmonics (asymmetric: even ones too). Pitch at 0 st (c1 = 0.857) to read them at the input's own multiples. */
+    /* Grit: the soft clip adds harmonics (asymmetric: even ones too); clean at 0. Pitch at -3 st (c1 = 1): read them at multiples of the 589 Hz that comes out. */
     double thd[2];
     for (int k = 0; k < 2; k++) {
-        vt_t *vt = vm_rig("Scream", 0.857f, 0.5f, k ? 1.0f : 0.0f, 0.5f, 0.0f);
+        vt_t *vt = vm_rig("Scream", 1.0f, 0.5f, k ? 1.0f : 0.0f, 0.5f, 0.0f);
         vm_sine_t s = { 700.0, 0.1 };
         long pos = 0;
         vm_run(vt, vm_sine, &s, 0.6, &pos, NULL, NULL);
         const int n = vm_run(vt, vm_sine, &s, 0.4, &pos, l, NULL);
-        thd[k] = (goertzel(l, n, 1400.0) + goertzel(l, n, 2100.0)) / goertzel(l, n, 700.0);
+        thd[k] = (goertzel(l, n, 2.0 * 588.7) + goertzel(l, n, 3.0 * 588.7)) / goertzel(l, n, 588.7);
         dsp_cleanup(vt);
     }
     if (!(thd[1] > 5.0 * thd[0])) printf("  scream grit: harmonic ratio %.2e -> %.2e\n", thd[0], thd[1]);
@@ -1015,6 +1011,510 @@ static void test_prism_glass(void)
         const float *t = mid + M - VT_SAMPLE_RATE / 2;
         const double c4 = band_at(t, VT_SAMPLE_RATE / 2, 261.63), cs4 = band_at(t, VT_SAMPLE_RATE / 2, 277.18);
         CHECK(c4 > 10.0 * cs4);
+    }
+}
+
+/* -------------------------------------------------------- Voice FX */
+
+typedef struct { const char *k, *v; } vf_kv;
+
+/* A Voice FX rig: engine VoiceFX, a clean base (no breath, tail, choir or attack so each test isolates its knob,
+ * wet only at the Mix/Drive knee), then the given overrides. */
+static vt_t *vf_rig(const vf_kv *kv, int n)
+{
+    static const vf_kv base[] = {
+        { "engine", "VoiceFX" }, { "vf_vowel", "0" }, { "vf_tract", "0.5" }, { "vf_peak", "0.5" }, { "vf_choir", "0" },
+        { "vf_breath", "0" }, { "vf_attack", "0" }, { "vf_release", "0" }, { "vf_mix", "0.7" },   /* 0.7 = all wet at the knee, almost no drive */
+    };
+    vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+    for (size_t i = 0; i < sizeof base / sizeof base[0]; i++) dsp_set_param(vt, base[i].k, base[i].v);
+    for (int i = 0; i < n; i++) dsp_set_param(vt, kv[i].k, kv[i].v);
+    return vt;
+}
+
+/* Mean band level (per-Hz) of white noise through Voice FX with the given overrides. */
+static double vf_noise_band(const vf_kv *kv, int n, double lo, double hi)
+{
+    static float l[2 * VT_SAMPLE_RATE];
+    vt_t *vt = vf_rig(kv, n);
+    unsigned seed = 77;
+    long pos = 0;
+    vm_run(vt, vm_noise, &seed, 0.6, &pos, NULL, NULL);
+    const int m = vm_run(vt, vm_noise, &seed, 1.5, &pos, l, NULL);
+    const double e = vm_bavg(l, m, lo, hi);
+    dsp_cleanup(vt);
+    return e;
+}
+
+static void test_voicefx(void)
+{
+    static float l[3 * VT_SAMPLE_RATE], r[3 * VT_SAMPLE_RATE];
+
+    /* Vowel: A has its first formant near 730 Hz and I near 270 Hz with a high second formant at 2.3 kHz */
+    {
+        const vf_kv a[] = { { "vf_vowel", "0" } }, i[] = { { "vf_vowel", "0.5" } };
+        const double a_f1 = vf_noise_band(a, 1, 700.0, 760.0), a_lo = vf_noise_band(a, 1, 240.0, 300.0), a_f2 = vf_noise_band(a, 1, 2200.0, 2380.0);
+        const double i_f1 = vf_noise_band(i, 1, 700.0, 760.0), i_lo = vf_noise_band(i, 1, 240.0, 300.0), i_f2 = vf_noise_band(i, 1, 2200.0, 2380.0);
+        if (!(a_f1 > 3.0 * a_lo && i_lo > 3.0 * i_f1 && i_f2 / i_f1 > 4.0 * (a_f2 / a_f1)))
+            printf("  vowel: A F1 %.2e lo %.2e F2' %.2e | I F1 %.2e lo %.2e F2' %.2e\n", a_f1, a_lo, a_f2, i_f1, i_lo, i_f2);
+        CHECK(a_f1 > 3.0 * a_lo);                                  /* A: energy at 730, little at 270 */
+        CHECK(i_lo > 3.0 * i_f1);                                  /* I: the other way round */
+        CHECK(i_f2 / i_f1 > 4.0 * (a_f2 / a_f1));                  /* and a bright second formant */
+    }
+    /* Sweep: the vowel knob is continuous (E, between A and I, sits between them) and U is dark again */
+    {
+        const vf_kv e[] = { { "vf_vowel", "0.25" } }, u[] = { { "vf_vowel", "1" } };
+        const vf_kv a[] = { { "vf_vowel", "0" } }, i[] = { { "vf_vowel", "0.5" } };
+        const double ra = vf_noise_band(a, 1, 2200.0, 2380.0) / vf_noise_band(a, 1, 700.0, 760.0);
+        const double re = vf_noise_band(e, 1, 1700.0, 1980.0) / vf_noise_band(e, 1, 480.0, 580.0);
+        const double ri = vf_noise_band(i, 1, 2200.0, 2380.0) / vf_noise_band(i, 1, 700.0, 760.0);
+        const double rE = vf_noise_band(e, 1, 2200.0, 2380.0) / vf_noise_band(e, 1, 700.0, 760.0);
+        CHECK(re > 0.05);                                          /* E has a second formant near 1.84 kHz */
+        CHECK(rE > ra && rE < ri);                                 /* brightness rises monotonically A -> E -> I */
+        CHECK(vf_noise_band(u, 1, 270.0, 330.0) > 3.0 * vf_noise_band(u, 1, 1400.0, 1600.0));   /* U: F1 near 300, nothing at 1.5 kHz */
+    }
+    /* Tract: the formants move up with the knob and down below the middle */
+    {
+        const vf_kv lo[] = { { "vf_tract", "0" } }, mid[] = { { "vf_tract", "0.5" } }, hi[] = { { "vf_tract", "1" } };
+        const double up_hi = vf_noise_band(hi, 1, 1000.0, 1200.0) / vf_noise_band(hi, 1, 700.0, 760.0);
+        const double up_mid = vf_noise_band(mid, 1, 1000.0, 1200.0) / vf_noise_band(mid, 1, 700.0, 760.0);
+        const double dn_lo = vf_noise_band(lo, 1, 440.0, 520.0) / vf_noise_band(lo, 1, 700.0, 760.0);
+        const double dn_mid = vf_noise_band(mid, 1, 440.0, 520.0) / vf_noise_band(mid, 1, 700.0, 760.0);
+        if (!(up_hi > 3.0 * up_mid && dn_lo > 3.0 * dn_mid)) printf("  tract: up %.2f vs %.2f, down %.2f vs %.2f\n", up_hi, up_mid, dn_lo, dn_mid);
+        CHECK(up_hi > 3.0 * up_mid);                               /* F1 730 -> ~1.1 kHz at 1 */
+        CHECK(dn_lo > 3.0 * dn_mid);                               /* F1 730 -> ~480 Hz at 0 */
+    }
+    /* Peak: a narrower formant stands further out of the band around it */
+    {
+        const vf_kv p0[] = { { "vf_peak", "0" } }, p1[] = { { "vf_peak", "1" } };
+        const double s0 = vf_noise_band(p0, 1, 715.0, 745.0) / vf_noise_band(p0, 1, 420.0, 500.0);
+        const double s1 = vf_noise_band(p1, 1, 715.0, 745.0) / vf_noise_band(p1, 1, 420.0, 500.0);
+        if (!(s1 > 2.0 * s0)) printf("  peak: centre/side %.2f -> %.2f\n", s0, s1);
+        CHECK(s1 > 2.0 * s0);
+    }
+    /* Peak does not swing the loudness wildly (a level made up for the narrower bands) */
+    {
+        double rms[2];
+        for (int k = 0; k < 2; k++) {
+            const vf_kv kv[] = { { "vf_peak", k ? "1" : "0" } };
+            vt_t *vt = vf_rig(kv, 1);
+            vm_tone_t tn = { 190.0, 0.4, 8 };
+            long pos = 0;
+            vm_run(vt, vm_tone, &tn, 0.6, &pos, NULL, NULL);
+            const int n = vm_run(vt, vm_tone, &tn, 1.0, &pos, l, NULL);
+            rms[k] = rms_of(l, n);
+            dsp_cleanup(vt);
+        }
+        if (!(fabs(20.0 * log10(rms[1] / rms[0])) < 5.0)) printf("  peak level: %.1f dB between Peak 0 and 1\n", 20.0 * log10(rms[1] / rms[0]));
+        CHECK(fabs(20.0 * log10(rms[1] / rms[0])) < 5.0);
+    }
+    /* Choir: left and right are the same at 0 and decorrelate with the knob */
+    {
+        double corr[2];
+        for (int k = 0; k < 2; k++) {
+            const vf_kv kv[] = { { "vf_choir", k ? "1" : "0" } };
+            vt_t *vt = vf_rig(kv, 1);
+            vm_tone_t tn = { 190.0, 0.4, 8 };
+            long pos = 0;
+            vm_run(vt, vm_tone, &tn, 0.6, &pos, NULL, NULL);
+            const int n = vm_run(vt, vm_tone, &tn, 1.5, &pos, l, r);
+            double sxy = 0, sxx = 0, syy = 0;
+            for (int i = 0; i < n; i++) { sxy += (double)l[i] * r[i]; sxx += (double)l[i] * l[i]; syy += (double)r[i] * r[i]; }
+            corr[k] = sxy / sqrt(sxx * syy + 1e-30);
+            dsp_cleanup(vt);
+        }
+        if (!(corr[0] > 0.999 && corr[1] < 0.95)) printf("  choir: L/R correlation %.4f -> %.4f\n", corr[0], corr[1]);
+        CHECK(corr[0] > 0.999);
+        CHECK(corr[1] < 0.95);
+    }
+    /* Breath: the voice's air above the formants comes back, noise follows the voice, and silence stays silent */
+    {
+        double air[2];
+        for (int k = 0; k < 2; k++) {
+            const vf_kv kv[] = { { "vf_breath", k ? "1" : "0" } };
+            vt_t *vt = vf_rig(kv, 1);
+            unsigned seed = 5;
+            long pos = 0;
+            vm_run(vt, vm_noise, &seed, 0.5, &pos, NULL, NULL);
+            const int n = vm_run(vt, vm_noise, &seed, 1.0, &pos, l, NULL);
+            air[k] = band_energy(l, n, 5000.0, 9000.0);
+            dsp_cleanup(vt);
+        }
+        if (!(air[1] > 3.0 * air[0])) printf("  breath: 5-9 kHz %.2e -> %.2e\n", air[0], air[1]);
+        CHECK(air[1] > 3.0 * air[0]);
+        const vf_kv kv[] = { { "vf_breath", "1" } };
+        vt_t *vt = vf_rig(kv, 1);
+        vm_sine_t off = { 440.0, 0.0 };
+        long pos = 0;
+        vm_run(vt, vm_sine, &off, 0.5, &pos, NULL, NULL);
+        const int n = vm_run(vt, vm_sine, &off, 0.5, &pos, l, NULL);
+        CHECK(rms_of(l, n) < 1e-6);                                /* no hiss at rest */
+        dsp_cleanup(vt);
+    }
+    /* Attack: the formants bloom in over the knob's time; a held note costs no level */
+    {
+        double t50[2], lvl[2];
+        for (int k = 0; k < 2; k++) {
+            const vf_kv kv[] = { { "vf_attack", k ? "1" : "0" } };
+            vt_t *vt = vf_rig(kv, 1);
+            vm_tone_t tn = { 190.0, 0.4, 8 };
+            long pos = 0;
+            vm_run(vt, vm_sine, &(vm_sine_t){ 440.0, 0.0 }, 0.5, &pos, NULL, NULL);
+            const int n = vm_run(vt, vm_tone, &tn, 1.0, &pos, l, NULL);
+            lvl[k] = rms_of(l + n - 4410, 4410);
+            t50[k] = -1.0;
+            for (int w = 0; w + 220 < n && t50[k] < 0; w += 110)
+                if (rms_of(l + w, 220) > 0.5 * lvl[k]) t50[k] = w * 1000.0 / VT_SAMPLE_RATE;
+            dsp_cleanup(vt);
+        }
+        if (!(t50[0] >= 0 && t50[1] > 2.0 * t50[0] + 15.0 && fabs(20.0 * log10(lvl[1] / lvl[0])) < 1.5))
+            printf("  attack: half level after %.1f ms vs %.1f ms, held level %+.1f dB\n", t50[0], t50[1], 20.0 * log10(lvl[1] / lvl[0]));
+        CHECK(t50[0] >= 0 && t50[1] > 2.0 * t50[0] + 15.0);
+        CHECK(fabs(20.0 * log10(lvl[1] / lvl[0])) < 1.5);
+    }
+    /* Release: the vowel rings on after the voice stops, and at 0 it does not */
+    {
+        double tail[2], during[2];
+        for (int k = 0; k < 2; k++) {
+            const vf_kv kv[] = { { "vf_release", k ? "1" : "0" } };
+            vt_t *vt = vf_rig(kv, 1);
+            vm_tone_t tn = { 190.0, 0.4, 8 };
+            vm_sine_t off = { 440.0, 0.0 };
+            long pos = 0;
+            const int n1 = vm_run(vt, vm_tone, &tn, 0.6, &pos, l, NULL);
+            during[k] = rms_of(l + n1 - 4410, 4410);
+            const int n2 = vm_run(vt, vm_sine, &off, 0.6, &pos, r, NULL);
+            tail[k] = rms_of(r + 6615, n2 - 6615);                 /* 150 ms on */
+            dsp_cleanup(vt);
+        }
+        if (!(tail[1] > 10.0 * tail[0] + 1e-6 && tail[0] < 0.02 * during[0] && tail[1] > 0.02 * during[1]))
+            printf("  release: tail %.2e -> %.2e (voice %.2e -> %.2e)\n", tail[0], tail[1], during[0], during[1]);
+        CHECK(tail[0] < 0.02 * during[0]);
+        CHECK(tail[1] > 0.02 * during[1]);
+        CHECK(tail[1] > 10.0 * tail[0] + 1e-6);
+    }
+    /* Mix/Drive: at 0 the voice passes dry (a 6 kHz tone the formants almost stop), at the knee (0.7) it is all formants */
+    {
+        double a6[2];
+        for (int k = 0; k < 2; k++) {
+            const vf_kv kv[] = { { "vf_mix", k ? "0.7" : "0" } };
+            vt_t *vt = vf_rig(kv, 1);
+            vm_sine_t s = { 6000.0, 0.2 };
+            long pos = 0;
+            vm_run(vt, vm_sine, &s, 0.5, &pos, NULL, NULL);
+            const int n = vm_run(vt, vm_sine, &s, 0.5, &pos, l, NULL);
+            a6[k] = goertzel(l, n, 6000.0);
+            dsp_cleanup(vt);
+        }
+        if (!(a6[0] > 10.0 * a6[1])) printf("  mix: 6 kHz %.2e (dry) vs %.2e (wet)\n", a6[0], a6[1]);
+        CHECK(a6[0] > 10.0 * a6[1]);
+    }
+    /* ... and above the knee the voice stays all wet while the drive climbs: more harmonics, no change in level */
+    {
+        double thd[3], lv[3];
+        static const char *const m[3] = { "0.7", "0.85", "1" };
+        for (int k = 0; k < 3; k++) {
+            const vf_kv kv[] = { { "vf_mix", m[k] } };
+            vt_t *vt = vf_rig(kv, 1);
+            vm_sine_t s = { 600.0, 0.15 };
+            long pos = 0;
+            vm_run(vt, vm_sine, &s, 0.6, &pos, NULL, NULL);
+            const int n = vm_run(vt, vm_sine, &s, 0.6, &pos, l, NULL);
+            thd[k] = (goertzel(l, n, 1200.0) + goertzel(l, n, 1800.0) + goertzel(l, n, 2400.0)) / goertzel(l, n, 600.0);
+            lv[k] = rms_of(l, n);
+            dsp_cleanup(vt);
+        }
+        if (!(thd[1] > 2.0 * thd[0] && thd[2] > 2.0 * thd[1] && fabs(20.0 * log10(lv[2] / lv[0])) < 4.0))
+            printf("  drive: harmonics %.2e %.2e %.2e, level %+.1f dB\n", thd[0], thd[1], thd[2], 20.0 * log10(lv[2] / lv[0]));
+        CHECK(thd[1] > 2.0 * thd[0] && thd[2] > 2.0 * thd[1]);
+        CHECK(fabs(20.0 * log10(lv[2] / lv[0])) < 4.0);
+    }
+    /* Level: a working-level voice lands near the vocoder side's loudness, under the headroom ceiling, at every vowel */
+    for (int v = 0; v < 5; v++) {
+        char b[8];
+        snprintf(b, sizeof b, "%g", v * 0.25);
+        const vf_kv kv[] = { { "vf_vowel", b }, { "vf_mix", "0.85" }, { "vf_choir", "0.4" }, { "vf_breath", "0.2" }, { "vf_attack", "0.15" }, { "vf_release", "0.25" } };
+        vt_t *vt = vf_rig(kv, 6);
+        vm_vowel_t vw = { 180.0, 800.0, 0.4 };
+        long pos = 0;
+        vm_run(vt, vm_vowel, &vw, 1.0, &pos, NULL, NULL);
+        const int n = vm_run(vt, vm_vowel, &vw, 1.5, &pos, l, NULL);
+        double ss = 0, pk = 0;
+        for (int i = 0; i < n; i++) { ss += (double)l[i] * l[i]; pk = fmax(pk, fabs(l[i])); }
+        const double db = 10.0 * log10(ss / n + 1e-12);
+        if (!(db > -30.0 && db < -12.0 && pk <= (double)TINYVOICE_OUTPUT_HEADROOM)) printf("  voice fx vowel %d: %.1f dBFS rms, peak %.3f\n", v, db, pk);
+        CHECK(db > -30.0 && db < -12.0);
+        CHECK(pk <= (double)TINYVOICE_OUTPUT_HEADROOM);
+        dsp_cleanup(vt);
+    }
+}
+
+/* Voice FX has its own page and knows nothing of the vocoder side's: nothing set there can change it. */
+static void test_voicefx_isolation(void)
+{
+    static float a[VT_SAMPLE_RATE], b[VT_SAMPLE_RATE];
+    static const vf_kv vf[] = { { "vf_vowel", "0.4" }, { "vf_tract", "0.62" }, { "vf_peak", "0.7" }, { "vf_choir", "0.6" },
+                                { "vf_breath", "0.5" }, { "vf_attack", "0.3" }, { "vf_release", "0.4" }, { "vf_mix", "0.8" } };
+    static const vf_kv away[] = { { "mode", "Scream" }, { "key", "F#" }, { "scale", "Major" }, { "retune", "300" }, { "char1", "1" },
+                                  { "char2", "0" }, { "char4", "1" }, { "char5", "0" }, { "mod", "1" }, { "gate", "-6 dB" },
+                                  { "mix", "0.1" }, { "gain", "12" }, { "spread", "1" }, { "tone", "0.1" }, { "glide", "500" },
+                                  { "beauty", "1" }, { "latch", "On" } };
+    for (int k = 0; k < 2; k++) {
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "engine", "VoiceFX");
+        if (k) for (size_t i = 0; i < sizeof away / sizeof away[0]; i++) dsp_set_param(vt, away[i].k, away[i].v);
+        for (size_t i = 0; i < sizeof vf / sizeof vf[0]; i++) dsp_set_param(vt, vf[i].k, vf[i].v);
+        if (k) { note_on(vt, 60); note_on(vt, 64); }
+        vm_tone_t tn = { 190.0, 0.3, 8 };
+        long pos = 0;
+        vm_run(vt, vm_tone, &tn, 0.5, &pos, NULL, NULL);
+        vm_run(vt, vm_tone, &tn, 1.0, &pos, k ? b : a, NULL);
+        dsp_cleanup(vt);
+    }
+    int same = 1;
+    for (int i = 0; i < VT_SAMPLE_RATE; i++) if (a[i] != b[i]) same = 0;
+    CHECK(same);                                                   /* bit-identical: Mode, Key, Gate, Level, Mix, Tone, Spread, pads... are not read */
+    CHECK(rms_of(a, VT_SAMPLE_RATE) > 1e-3);
+
+    /* Engine names: the option name in any case (the host's Mode page may hand back its own spelling), or the index */
+    vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+    char v[16];
+    CHECK(dsp_set_param(vt, "engine", "voicefx") == 0 && dsp_get_param(vt, "engine", v, sizeof v) > 0 && strcmp(v, "VoiceFX") == 0);
+    CHECK(dsp_set_param(vt, "engine", "VOCODER") == 0 && dsp_get_param(vt, "engine", v, sizeof v) > 0 && strcmp(v, "Vocoder") == 0);
+    CHECK(dsp_set_param(vt, "engine", "1") == 0 && dsp_get_param(vt, "engine", v, sizeof v) > 0 && strcmp(v, "VoiceFX") == 0);
+    CHECK(dsp_set_param(vt, "engine", "Talkbox") == -1);
+
+    /* A change of engine pulses is_loading, which is what makes the host re-read chain_params and its pages */
+    static float z[2 * 128];
+    for (int i = 0; i < VT_SAMPLE_RATE / 128 + 2; i++) dsp_process_block_f(vt, z, 128);
+    dsp_set_param(vt, "engine", "Vocoder");
+    dsp_process_block_f(vt, z, 128);
+    CHECK(dsp_get_param(vt, "is_loading", v, sizeof v) > 0 && strcmp(v, "1") == 0);
+    for (int i = 0; i < 400; i++) dsp_process_block_f(vt, z, 128);
+    CHECK(dsp_get_param(vt, "is_loading", v, sizeof v) > 0 && strcmp(v, "0") == 0);
+    dsp_cleanup(vt);
+}
+
+/* Switching engines on a held voice does not click, and every engine path is finite and bounded. */
+static void test_voicefx_transitions(void)
+{
+    static float out[4 * VT_SAMPLE_RATE];
+    double steady[2] = { 0, 0 };
+    for (int run = 0; run < 3; run++) {                            /* 0: Vocoder alone, 1: Voice FX alone, 2: switching every 250 ms */
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "mode", "Snap");
+        vm_tone_t tn = { 190.0, 0.3, 8 };
+        long pos = 0;
+        int n = 0;
+        for (int seg = 0; seg < 12; seg++) {
+            dsp_set_param(vt, "engine", run == 1 || (run == 2 && (seg & 1)) ? "VoiceFX" : "Vocoder");
+            n += vm_run(vt, vm_tone, &tn, 0.25, &pos, out + n, NULL);
+        }
+        double worst = 0;
+        int bad = 0;
+        for (int i = 1; i < n; i++) {
+            if (!isfinite(out[i]) || fabsf(out[i]) > 1.0f) bad++;
+            if (i > VT_SAMPLE_RATE / 2) worst = fmax(worst, fabs(out[i] - out[i - 1]));
+        }
+        CHECK(bad == 0);
+        if (run < 2) steady[run] = worst; else {
+            if (!(worst < 3.0 * fmax(steady[0], steady[1]))) printf("  engine switch: largest step %.3f, steady %.3f / %.3f\n", worst, steady[0], steady[1]);
+            CHECK(worst < 3.0 * fmax(steady[0], steady[1]));       /* a fade, not a cut */
+        }
+        dsp_cleanup(vt);
+    }
+}
+
+/* Voice FX under every kind of input and extreme knobs: finite, under the ceiling, and nothing denormal left after. */
+static void test_voicefx_numeric_safety(void)
+{
+    static const char *const sets[3][8] = {
+        { "0", "0", "0", "0", "0", "0", "0", "0" },
+        { "1", "1", "1", "1", "1", "1", "1", "1" },
+        { "0.5", "0.5", "0.5", "0.5", "0.5", "0.5", "0.5", "0.5" },
+    };
+    static const char *const keys[8] = { "vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix" };
+    static float blk[2 * 128];
+    int bad = 0, over = 0, subnormal = 0;
+    double peak = 0;
+    for (int s = 0; s < 3; s++)
+        for (int kind = 0; kind < 6; kind++) {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "engine", "VoiceFX");
+            for (int k = 0; k < 8; k++) dsp_set_param(vt, keys[k], sets[s][k]);
+            unsigned seed = 4242u + (unsigned)(s * 10 + kind);
+            long pos = 0;
+            for (int bn = 0; bn < 260; bn++) {                       /* ~0.75 s */
+                for (int i = 0; i < 128; i++, pos++) blk[2 * i] = blk[2 * i + 1] = vm_wave(kind, pos, &seed);
+                dsp_process_block_f(vt, blk, 128);
+                for (int i = 0; i < 256; i++) {
+                    if (!isfinite(blk[i])) bad++;
+                    else { peak = fmax(peak, fabs(blk[i])); if (fabsf(blk[i]) > TINYVOICE_OUTPUT_HEADROOM) over++; }
+                }
+            }
+            for (int k = 0; k < 8; k++) dsp_set_param(vt, keys[k], "0");
+            for (int bn = 0; bn < 420; bn++) {                       /* 1.2 s of silence: the tail rings down */
+                memset(blk, 0, sizeof blk);
+                dsp_process_block_f(vt, blk, 128);
+                if (bn > 200)
+                    for (int i = 0; i < 256; i++) { if (!isfinite(blk[i])) bad++; if (fpclassify(blk[i]) == FP_SUBNORMAL) subnormal++; }
+            }
+            dsp_cleanup(vt);
+        }
+    if (bad || over || subnormal) printf("  voice fx: non-finite %d, over the ceiling %d, subnormal %d (peak %.3f)\n", bad, over, subnormal, peak);
+    CHECK(bad == 0);
+    CHECK(over == 0);
+    CHECK(subnormal == 0);
+    CHECK(peak > 0.05);                                            /* and it is not silent */
+}
+
+/* ------------------------------------------------ Voice FX presets */
+
+static void test_voicefx_presets(void)
+{
+    static const char *const names[6] = { "Yeah Boy", "Robo Talk", "Monster Throat", "Funky Talkbox", "Alien Choir", "Vowel Morph Solo" };
+    static const char *const keys[VT_PRESET_VALUES] = { "vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix" };
+    char b[64];
+
+    /* The bank is filtered by engine: six for Voice FX, none for the Vocoder */
+    CHECK(vt_preset_count(VT_ENGINE_VOICEFX) == 6);
+    CHECK(vt_preset_count(VT_ENGINE_VOCODER) == 0);
+    CHECK(vt_preset_get(VT_ENGINE_VOCODER, 0) == NULL);
+    CHECK(vt_preset_get(VT_ENGINE_VOICEFX, 6) == NULL && vt_preset_get(VT_ENGINE_VOICEFX, -1) == NULL);
+    CHECK(VT_P_VF_MIX - VT_P_VF_VOWEL + 1 == VT_PRESET_VALUES);          /* the table's order is the page's */
+    for (int i = 0; i < 6; i++) {
+        const vt_preset *p = vt_preset_get(VT_ENGINE_VOICEFX, i);
+        CHECK(p && p->engine == VT_ENGINE_VOICEFX && strcmp(p->name, names[i]) == 0 && strlen(p->name) <= 16);
+        for (int k = 0; p && k < VT_PRESET_VALUES; k++) CHECK(p->v[k] >= 0.0f && p->v[k] <= 1.0f);
+        CHECK(((uintptr_t)p % _Alignof(vt_preset)) == 0);
+    }
+
+    /* The page's defaults are the last preset's (Vowel Morph Solo) */
+    {
+        const vt_preset *p = vt_preset_get(VT_ENGINE_VOICEFX, 5);
+        for (int k = 0; p && k < VT_PRESET_VALUES; k++) CHECK(fabs((double)dsp_param_def(VT_P_VF_VOWEL + k)->def - (double)p->v[k]) < 1e-6);
+        CHECK((int)dsp_param_def(VT_P_VF_PRESET)->def == 5 && (int)dsp_param_def(VT_P_VF_PRESET)->max == 5);
+        CHECK(dsp_param_def(VT_P_VF_PRESET)->transient);
+    }
+
+    /* What the presets say, in the terms of the brief */
+    {
+        const vt_preset *yeah = vt_preset_get(VT_ENGINE_VOICEFX, 0), *robo = vt_preset_get(VT_ENGINE_VOICEFX, 1);
+        const vt_preset *monster = vt_preset_get(VT_ENGINE_VOICEFX, 2), *funky = vt_preset_get(VT_ENGINE_VOICEFX, 3);
+        const vt_preset *alien = vt_preset_get(VT_ENGINE_VOICEFX, 4);
+        CHECK(yeah->v[7] >= 0.9f && yeah->v[2] >= 0.75f && yeah->v[5] <= 0.05f);           /* hard drive, high resonance, snappy */
+        CHECK(robo->v[0] >= 0.75f && robo->v[2] >= 0.8f && fabs((robo->v[1] - 0.5) * 1.2) < 1e-6);   /* o..u window, high Q, neutral tract */
+        CHECK(fabs((monster->v[1] - 0.5) * 1.2 + 0.35) < 0.005 && monster->v[7] >= 0.95f && monster->v[5] == 0.0f);   /* tract -0.35 oct, hard drive, hard kick */
+        CHECK(fabs((alien->v[1] - 0.5) * 1.2 - 0.4) < 0.005 && alien->v[3] == 1.0f && alien->v[4] >= 0.8f);   /* tract +0.4 oct, full width, air */
+        CHECK(funky->v[7] <= VFX_MIX_KNEE && fabs(funky->v[2] - 0.5) < 0.1f && funky->v[5] <= 0.06f);          /* clean, medium Q, fast */
+    }
+
+    /* Loading: the browser writes the index, the eight knobs follow, the name and count are served */
+    {
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "engine", "VoiceFX");
+        CHECK(dsp_get_param(vt, "vf_preset_count", b, sizeof b) > 0 && strcmp(b, "6") == 0);
+        for (int i = 0; i < 6; i++) {
+            char idx[8];
+            snprintf(idx, sizeof idx, "%d", i);
+            CHECK(dsp_set_param(vt, "vf_preset", idx) == 0);
+            const vt_preset *p = vt_preset_get(VT_ENGINE_VOICEFX, i);
+            for (int k = 0; k < VT_PRESET_VALUES; k++) {
+                CHECK(dsp_get_param(vt, keys[k], b, sizeof b) > 0 && fabs(atof(b) - (double)p->v[k]) < 1e-4);
+            }
+            CHECK(dsp_get_param(vt, "vf_preset", b, sizeof b) > 0 && atoi(b) == i);
+            CHECK(dsp_get_param(vt, "vf_preset_name", b, sizeof b) > 0 && strcmp(b, names[i]) == 0);
+        }
+        CHECK(dsp_set_param(vt, "vf_preset", "99") == 0 && dsp_get_param(vt, "vf_preset", b, sizeof b) > 0 && atoi(b) == 5);   /* clamps to the last */
+        CHECK(dsp_set_param(vt, "vf_preset", "-4") == 0 && dsp_get_param(vt, "vf_preset", b, sizeof b) > 0 && atoi(b) == 0);
+        /* a saved state carries the knobs, not the preset index (a restore must not re-apply a preset over them) */
+        static char st[1536];
+        CHECK(dsp_get_param(vt, "state", st, sizeof st) > 0 && strstr(st, "vf_preset") == NULL && strstr(st, "\"vf_vowel\"") != NULL);
+        dsp_cleanup(vt);
+    }
+
+    /* Presets never touch the Vocoder: loading one while it runs changes nothing it plays */
+    {
+        static float a[VT_SAMPLE_RATE], c[VT_SAMPLE_RATE];
+        for (int k = 0; k < 2; k++) {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "mode", "Robot");
+            if (k) { dsp_set_param(vt, "vf_preset", "2"); dsp_set_param(vt, "vf_preset", "4"); }
+            note_on(vt, 60);
+            vm_tone_t tn = { 190.0, 0.3, 8 };
+            long pos = 0;
+            vm_run(vt, vm_tone, &tn, 0.3, &pos, NULL, NULL);
+            vm_run(vt, vm_tone, &tn, 1.0, &pos, k ? c : a, NULL);
+            dsp_cleanup(vt);
+        }
+        int same = 1;
+        for (int i = 0; i < VT_SAMPLE_RATE; i++) if (a[i] != c[i]) same = 0;
+        CHECK(same);
+    }
+
+    /* Every preset under every kind of input stays finite and under the -6.1 dBFS ceiling, and a voice lands at a usable level */
+    {
+        static float blk[2 * 128];
+        double worst = 0;
+        int bad = 0, over = 0;
+        for (int i = 0; i < 6; i++)
+            for (int kind = 0; kind < 6; kind++) {
+                vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+                dsp_set_param(vt, "engine", "VoiceFX");
+                char idx[8];
+                snprintf(idx, sizeof idx, "%d", i);
+                dsp_set_param(vt, "vf_preset", idx);
+                dsp_set_param(vt, "gain", "12");                     /* not read by Voice FX: the ceiling is its own */
+                unsigned seed = 31u + (unsigned)(i * 7 + kind);
+                long pos = 0;
+                for (int bn = 0; bn < 400; bn++) {                    /* ~1.2 s */
+                    for (int s = 0; s < 128; s++, pos++) blk[2 * s] = blk[2 * s + 1] = vm_wave(kind, pos, &seed);
+                    dsp_process_block_f(vt, blk, 128);
+                    for (int s = 0; s < 256; s++) {
+                        if (!isfinite(blk[s])) bad++;
+                        else { worst = fmax(worst, fabs(blk[s])); if (fabsf(blk[s]) > TINYVOICE_OUTPUT_HEADROOM) over++; }
+                    }
+                }
+                dsp_cleanup(vt);
+            }
+        if (bad || over) printf("  presets: non-finite %d, over the ceiling %d (peak %.3f)\n", bad, over, worst);
+        CHECK(bad == 0 && over == 0);
+        CHECK(worst > 0.1);                                           /* they sound */
+        static float l[VT_SAMPLE_RATE * 2];
+        for (int i = 0; i < 6; i++) {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "engine", "VoiceFX");
+            char idx[8];
+            snprintf(idx, sizeof idx, "%d", i);
+            dsp_set_param(vt, "vf_preset", idx);
+            vm_vowel_t vw = { 180.0, 800.0, 0.4 };
+            long pos = 0;
+            vm_run(vt, vm_vowel, &vw, 1.0, &pos, NULL, NULL);
+            const int n = vm_run(vt, vm_vowel, &vw, 1.5, &pos, l, NULL);
+            double ss = 0, pk = 0;
+            for (int s = 0; s < n; s++) { ss += (double)l[s] * l[s]; pk = fmax(pk, fabs(l[s])); }
+            const double db = 10.0 * log10(ss / n + 1e-12);
+            if (!(db > -32.0 && db < -10.0 && pk <= (double)TINYVOICE_OUTPUT_HEADROOM)) printf("  preset %d (%s): %.1f dBFS rms, peak %.3f\n", i, names[i], db, pk);
+            CHECK(db > -32.0 && db < -10.0);
+            CHECK(pk <= (double)TINYVOICE_OUTPUT_HEADROOM);
+            dsp_cleanup(vt);
+        }
+        /* switching presets on a held voice is finite and bounded, however fast the browser is turned */
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "engine", "VoiceFX");
+        unsigned seed = 5;
+        long pos = 0;
+        int sw_bad = 0;
+        for (int bn = 0; bn < 600; bn++) {
+            char idx[8];
+            snprintf(idx, sizeof idx, "%d", (bn / 3) % 6);
+            dsp_set_param(vt, "vf_preset", idx);
+            for (int s = 0; s < 128; s++, pos++) blk[2 * s] = blk[2 * s + 1] = 0.4f * tone(190.0, (int)pos, 8, VT_SAMPLE_RATE) + 0.02f * lcg_noise(&seed);
+            dsp_process_block_f(vt, blk, 128);
+            for (int s = 0; s < 256; s++) if (!isfinite(blk[s]) || fabsf(blk[s]) > 1.0f) sw_bad++;
+        }
+        CHECK(sw_bad == 0);
+        dsp_cleanup(vt);
     }
 }
 

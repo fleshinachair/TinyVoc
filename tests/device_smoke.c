@@ -171,10 +171,13 @@ int main(int argc, char **argv)
         { "Freeze rec",       "freeze", "Rec" },
         { "Freeze loop",      "freeze", "Loop" },
         { "Demo on",          "demo", "On" },
+        { "Voice FX",         "engine", "VoiceFX" },        /* the second personality, and its presets (Demo still on: it replaces the mic) */
+        { "VFX Yeah Boy",     "vf_preset", "0" },
+        { "VFX Alien Choir",  "vf_preset", "4" },
     };
     api->set_param(inst, "mode", "Robot");
     api->set_param(inst, "spread", "1");
-    for (int k = 0; k < 4; k++) {
+    for (int k = 0; k < (int)(sizeof extra / sizeof extra[0]); k++) {
         api->set_param(inst, extra[k][1], extra[k][2]);
         nonzero = 0;
         struct timespec t0, t1;
@@ -186,12 +189,13 @@ int main(int argc, char **argv)
         CHECK(nonzero);
         CHECK(ms < 2.0);
     }
+    api->set_param(inst, "engine", "Vocoder");
     api->set_param(inst, "demo", "Off");
     api->set_param(inst, "freeze", "Off");
     api->set_param(inst, "mod", "0");
     api->set_param(inst, "spread", "0.25");
 
-    api->set_param(inst, "delay", "250");
+    api->set_param(inst, "tone", "0.6");
     run_audio(api, inst, 440.0, 50, &nonzero, &bad);
 
     n = api->get_param(inst, "state", buf, sizeof buf);

@@ -125,6 +125,10 @@ float demo_process(demo_t *dm)
 
     /* syllable envelope: 25 ms in, ease down over the last 70 ms */
     float env = smooth(ts / 0.025f) * (1.0f - 0.7f * smooth((ts - (syl - 0.07f)) / 0.07f));
+    /* the last syllable is short and the phrase ends in a breath (~0.2 s of
+     * silence), so the voice gate closes once a phrase as it does on a real
+     * voice: Walkie's squelch tail, Robot's silent pauses */
+    if (s == DEMO_SYLLABLES - 1) env *= 1.0f - smooth((ts - 0.22f) / 0.06f);
 
     /* "s" onset on syllables 2 and 4: 60 ms of high-passed noise before the vowel */
     float hiss = 0.0f;

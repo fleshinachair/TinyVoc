@@ -17,7 +17,7 @@
  *   pads    the target note drawn inverted while a pad sets it, and a dot
  *           that flashes on every note-on (shows pads are reaching the FX)
  *
- * custom:tinyvoice_freeze spans SPACE knobs 7-8 (Freeze, Freeze Len). Off: the
+ * custom:tinyvoice_freeze spans SPACE knobs 4-5 (Freeze, Freeze Len). Off: the
  * two values, centred in their cells like the stock knobs. Active: the box is
  * cleared and taken over - "[ *** ARMED *** ]" flashing inverted with the beats
  * left to bar 1 as squares, an inverted "[ REC ]" with the take filling,
@@ -193,7 +193,7 @@
         }
     }
 
-    /* ---- Freeze banner (SPACE knobs 7-8) ----
+    /* ---- Freeze banner (SPACE knobs 4-5) ----
      *
      * The frame is the two cells' graphic area, above the host's label band
      * ("FREEZE", "FRELEN"). The host clips text at the frame's right edge but

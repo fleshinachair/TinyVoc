@@ -7,14 +7,15 @@
 
 #define PI_F 3.14159265358979f
 
-/* Scream: the telephone band at the middle Narrow setting, the throat (formant
- * scale) and the downshift at their middle settings, and the makeup that gives
- * the band's loss back. */
-#define SCREAM_HP_HZ     350.0f
-#define SCREAM_LP_HZ     3400.0f
-#define SCREAM_MAKEUP    1.9f
-#define SCREAM_PITCH_ST  (-5.0f)
-#define SCREAM_THROAT    0.8f
+/* Scream (the prank caller's voice changer): a deep drop with the formants
+ * lowered (a big throat), kept full: the band at the middle Narrow setting only
+ * trims rumble and fizz (a 350 Hz .. 3.4 kHz phone band took the very depth
+ * the drop makes, leaving thin, clipped harmonics that read as static). */
+#define SCREAM_HP_HZ     90.0f
+#define SCREAM_LP_HZ     4800.0f
+#define SCREAM_MAKEUP    1.25f
+#define SCREAM_PITCH_ST  (-8.0f)
+#define SCREAM_THROAT    0.84f
 #define HARDTUNE_TRIM    1.27f
 #define PRISM_GLASS_TRIM 0.9f
 
@@ -175,7 +176,7 @@ void fx_set(fx_t *fx, const cher_t *c, int mode, float char1, float char2, float
     if (mode == VT_MODE_MORPH) k = 1.0f + 15.0f * char2;
     else if (mode == VT_MODE_PRISM) k = 1.0f + 6.0f * char2;
     else if (mode == VT_MODE_TAPE) k = 1.0f + 6.0f * mod;
-    else if (mode == VT_MODE_SCREAM) k = 1.5f + 4.0f * mod;
+    else if (mode == VT_MODE_SCREAM) k = 1.0f + 4.5f * mod;                         /* Grit 0: clean */
     if (k != fx->sat_k) { fx->sat_k = k; fx->sat_n = sat_norm(k); }
 
     /* Snap's grain tightness (char1 above 0.5); every other mode plays plain PSOLA. */
@@ -229,9 +230,10 @@ void fx_set_extra(fx_t *fx, float char4, float char5)
     fx->char4 = clampf(char4, 0.0f, 1.0f);
     fx->char5 = clampf(char5, 0.0f, 1.0f);
     if (fx->mode == VT_MODE_SCREAM) {
-        /* Narrow: the band closes in from both sides (at 0.5 it is 350 Hz .. 3.4 kHz) */
-        const float sh = exp2f((fx->char4 - 0.5f) * 1.5f);
-        const float hp = SCREAM_HP_HZ * sh, lp = SCREAM_LP_HZ / sh;
+        /* Narrow: the band closes in from both sides: 90 Hz .. 4.8 kHz at 0.5,
+         * a phone line (360 Hz .. 2.6 kHz) at 1, nearly open at 0 */
+        const float hp = SCREAM_HP_HZ * exp2f((fx->char4 - 0.5f) * 4.0f);
+        const float lp = SCREAM_LP_HZ * exp2f((0.5f - fx->char4) * 1.8f);
         if (hp != fx->scr_hp || lp != fx->scr_lp) {
             fx->scr_hp = hp; fx->scr_lp = lp;
             svf_retune(&fx->scr[0], hp, 0.5412f, fx->sr);
@@ -241,8 +243,10 @@ void fx_set_extra(fx_t *fx, float char4, float char5)
         }
     }
     if (fx->mode == VT_MODE_PRISM) {
-        fx->pg_amt_goal = fx->char4;
-        const float delta = 8.0f + 130.0f * fx->char4 * fx->char4;    /* the shift, Hz: 8 .. 138 */
+        /* the glass comes in gently (0.2 at the middle setting), and the shift
+         * never goes under 30 Hz: a few Hz against the voice beat as a warble */
+        fx->pg_amt_goal = fx->char4 * fx->char4;
+        const float delta = 30.0f + 108.0f * fx->char4 * fx->char4;   /* the shift, Hz: 30 .. 138 */
         ssb_osc_set(&fx->pg_l, delta, fx->sr);
         ssb_osc_set(&fx->pg_r, -0.8f * delta, fx->sr);
     }
@@ -397,8 +401,6 @@ void fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r)
                                        0.06f * sinf(2.0f * PI_F * (0.11f + 0.07f * (float)i) * t));
                 static const float bdet[FX_VOICES] = { 0.0f, 0.04f, -0.04f, 0.025f };   /* Beauty: +-4 ct */
                 hum += fx->beauty * bdet[i];
-                static const float mtone[FX_VOICES] = { 0.0f, 0.34f, -0.27f, 0.50f };  /* refract: off-grid offsets, semitones */
-                hum += fx->pg_amt * mtone[i];
                 float lr = ((float)fx->note[i] + fx->glide_off[i] + hum - c->f0_midi) * (1.0f / 12.0f);
                 ratio = exp2f(clampf(lr, -1.0f, 1.0f));
             }
@@ -422,7 +424,10 @@ void fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r)
         /* Glass (char4 > 0): the bus through a Hilbert pair, shifted up by
          * delta on the left and down by 0.8 delta on the right, so partials sit
          * at non-integer multiples of the pitch; each side then goes through a
-         * slowly modulated comb (char5 sets its feedback): metallic, shimmering. */
+         * comb (char5 sets its feedback): metallic, shimmering. The harmony
+         * voices stay on their notes (off-grid offsets put octave doublings
+         * a few Hz apart: a warble), and the comb's delay drifts only slightly
+         * (a deep sweep is a vibrato on the whole glass). */
         fx->pg_amt += (fx->pg_amt_goal - fx->pg_amt) * 0.0015f;
         if (fx->pg_amt < 1e-4f && fx->pg_amt_goal == 0.0f) fx->pg_amt = 0.0f;
         if (fx->pg_amt > 0.0f) {
@@ -432,8 +437,8 @@ void fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r)
             ssb_osc_tick(&fx->pg_l);
             ssb_osc_tick(&fx->pg_r);
             const float fb = 0.62f * fx->char5, make = 1.0f - 0.55f * fb;
-            const float dl = (0.0029f + 0.00035f * sinf(2.0f * PI_F * 0.27f * t)) * sr;
-            const float dr = (0.0036f + 0.00035f * sinf(2.0f * PI_F * 0.19f * t + 1.0f)) * sr;
+            const float dl = (0.0029f + 0.00005f * sinf(2.0f * PI_F * 0.27f * t)) * sr;
+            const float dr = (0.0036f + 0.00005f * sinf(2.0f * PI_F * 0.19f * t + 1.0f)) * sr;
             gl = flush(gl + fb * haas_read_n(fx->pg_line[0], fx->pg_w, dl, FX_GLASS_LEN));
             gr = flush(gr + fb * haas_read_n(fx->pg_line[1], fx->pg_w, dr, FX_GLASS_LEN));
             fx->pg_line[0][fx->pg_w] = gl;
@@ -466,6 +471,11 @@ void fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r)
         float fc = fmaxf(9000.0f * exp2f(lr), 2500.0f);
         float a = 1.0f - expf(-2.0f * PI_F * fc / sr);
         l = r = onepole(&fx->lp[0][1], onepole(&fx->lp[0][0], y, a), a);
+        const float hiss = clampf(2.0f * (fx->char5 - 0.5f), 0.0f, 1.0f);           /* char5: tape hiss, above 0.5 */
+        if (hiss > 0.0f) {
+            fx->pg_rng = fx->pg_rng * 1664525u + 1013904223u;
+            l = r = l + hiss * 0.02f * ((float)(int)(fx->pg_rng >> 8) * (1.0f / 8388608.0f) - 1.0f);
+        }
         break;
     }
     case VT_MODE_HARDTUNE: {
@@ -489,12 +499,13 @@ void fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r)
         break;
     }
     case VT_MODE_SCREAM: {
-        /* Stalker on the phone: the voice dropped (char1, -5 st) with its
-         * formants lowered (char2, x0.8: a bigger throat), through a steep
-         * telephone band and an asymmetric soft clip (mod = grit); char5 adds
-         * line hiss before the band. */
-        const float pitch = SCREAM_PITCH_ST + (fx->char1 - 0.5f) * 14.0f;
-        const float fr = SCREAM_THROAT * exp2f((fx->char2 - 0.5f) * 0.9f);
+        /* The prank caller's voice changer: the voice dropped (char1, -8 st)
+         * with its formants lowered (char2, x0.84: a bigger throat), through a
+         * band that keeps the chest (char4 closes it into a phone line) and an
+         * asymmetric soft clip that is clean at Grit 0 (mod); char5 adds line
+         * hiss before the band. */
+        const float pitch = clampf(SCREAM_PITCH_ST + (fx->char1 - 0.5f) * 10.0f, -12.0f, -3.0f);
+        const float fr = SCREAM_THROAT * exp2f(fx->char2 - 0.5f);
         float y = psola_process(&fx->pv[0], c, T0, exp2f(pitch * (1.0f / 12.0f)), fr, 0.0f);
         const float hiss = clampf(2.0f * (fx->char5 - 0.5f), 0.0f, 1.0f);
         if (hiss > 0.0f) {
@@ -507,8 +518,8 @@ void fx_process(fx_t *fx, cher_t *c, float in, float *out_l, float *out_r)
             y = y - fx->scr[s].k * bp - lp;
         }
         for (int s = 2; s < 4; s++) y = svf_tick(&fx->scr[s], y, &bp);                /* low-pass x2 */
-        const float bias = 0.25f;
-        y = (tanhf(fx->sat_k * y * SCREAM_MAKEUP + bias) - tanhf(bias)) * fx->sat_n;
+        const float bias = 0.1f + 0.15f * fx->mod;
+        y = (tanhf(fx->sat_k * y + bias) - tanhf(bias)) * fx->sat_n * SCREAM_MAKEUP;
         l = r = y;
         break;
     }

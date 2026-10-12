@@ -18,7 +18,12 @@ SRC="$ROOT/build/$MODULE_ID"
 
 echo "installing to $MOVE_USER@$MOVE_HOST:$DEST"
 # tar over ssh: no rsync/scp dependency, works from Git Bash on Windows.
-tar -C "$SRC" -cf - . | ssh "$MOVE_USER@$MOVE_HOST" "mkdir -p '$DEST' && rm -f '$DEST/dsp.so' '$DEST/ui.js' '$DEST/ui_chain.js' && tar -C '$DEST' -xf - && chmod 755 '$DEST'/*.so"
+# Never write over the .so in place: if Schwung has it loaded, overwriting its
+# pages corrupts the running process (silent or garbage audio until a restart).
+# Extract beside it and mv each file in: a rename leaves the old, mapped copy
+# intact for the running process, and the new one loads on the next restart.
+STAGE="$(dirname "$(dirname "$(dirname "$DEST")")")/.stage-$MODULE_ID"      # same filesystem, outside modules/
+tar -C "$SRC" -cf - . | ssh "$MOVE_USER@$MOVE_HOST" "rm -rf '$STAGE' && mkdir -p '$STAGE' '$DEST' && tar -C '$STAGE' -xf - && chmod 755 '$STAGE'/*.so && rm -f '$DEST/dsp.so' '$DEST/ui.js' '$DEST/ui_chain.js' && for f in '$STAGE'/*; do mv -f \"\$f\" '$DEST'/; done && rm -rf '$STAGE'"
 
 # The module was called VocalTron (id "vocaltron"), then TinyVoc (id "tinyvoc"),
 # until it became TinyVoice. Remove those old installs so the browser doesn't list them too.

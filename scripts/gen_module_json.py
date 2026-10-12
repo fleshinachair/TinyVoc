@@ -1,7 +1,10 @@
 """Regenerate TinyVoice's module.json AND src/dsp/module_meta.h from one table:
-21 params on four pages (VOICE, PITCH, SPACE, MORE), plus three read-only
-readouts (pitch, target, cents) that carry the OLED scope on PITCH knobs 5-7.
-VOICE is the home page: Mode, five contextual knobs, Mix, Level.
+29 params, two personalities chosen by `engine` (the hierarchy's mode_param):
+  Vocoder: four pages (VOICE, PITCH, SPACE, MORE), plus three read-only
+           readouts (pitch, target, cents) that carry the OLED scope on PITCH
+           knobs 5-7. VOICE is the home page: Mode, five contextual knobs, Mix, Level.
+  VoiceFX: one page of eight knobs (Vowel, Tract, Peak, Choir, Breath, Attack,
+           Release, Mix/Drive), nothing else.
 
     python scripts/gen_module_json.py [module.json] [src/dsp/module_meta.h]
 
@@ -49,18 +52,26 @@ PARAMS = [
     enum("gate", "Gate", ["Auto"] + ["%d dB" % db for db in range(-60, 1, 3)], 0),   # 3 dB steps
     flt("mix", "Mix", 0, 1, 0.01, 1, "%"),
     flt("gain", "Level", -12, 12, 0.5, 0, "dB"),
-    flt("delay", "Delay", 0, 1000, 1, 0, "ms"),
-    flt("feedback", "Feedback", 0, 0.95, 0.01, 0.3, "%"),
     flt("spread", "Spread", 0, 1, 0.01, 0.25, "%"),
     flt("tone", "Tone", 0, 1, 0.01, 1, "%"),
     flt("glide", "Glide", 0, 500, 1, 0, "ms"),
     flt("mod", "Mod", 0, 1, 0.01, 0, "%"),
-    flt("reverb", "Reverb", 0, 1, 0.01, 0, "%"),
     enum("freeze_len", "Freeze Len", ["Free", "1 Bar", "2 Bars", "4 Bars"], 2),   # Rec stops itself after N bars
     flt("beauty", "Beauty", 0, 1, 0.01, 0.5, "%"),          # per-mode polish: stereo, detune, air, warmth
     enum("latch", "Latch", ["Off", "On"], 0),               # pad chord holds after release (Robot, Chords, Prism, Nightcall, Harmony)
     flt("char4", "Char 4", 0, 1, 0.01, 0.5, "%"),           # macros 4 and 5: per mode a new control, or an alias of an old param
     flt("char5", "Char 5", 0, 1, 0.01, 0.5, "%"),
+    # the second personality: the Mode selector page writes `engine`; the vf_* params are the Voice FX page
+    enum("engine", "Engine", ["Vocoder", "VoiceFX"], 0),
+    flt("vf_vowel", "Vowel", 0, 1, 0.01, 0.0, "%"),         # A E I O U sweep
+    flt("vf_tract", "Tract", 0, 1, 0.01, 0.5, "%"),         # formant scale / gender
+    flt("vf_peak", "Peak", 0, 1, 0.01, 0.5, "%"),           # formant Q
+    flt("vf_choir", "Choir", 0, 1, 0.01, 0.35, "%"),        # L/R formant detune and width
+    flt("vf_breath", "Breath", 0, 1, 0.01, 0.15, "%"),      # noise through the formants + consonant air
+    flt("vf_attack", "Attack", 0, 1, 0.01, 0.12, "%"),      # onset swell
+    flt("vf_release", "Release", 0, 1, 0.01, 0.3, "%"),     # tail
+    flt("vf_mix", "Mix/Drv", 0, 1, 0.01, 0.75, "%"),        # wet/dry up to 70 %, then all wet with the drive climbing
+    flt("vf_preset", "Preset", 0, 5, 1, 5),                 # the Voice FX bank (presets.c); the host's preset browser writes it
     # performance toggles (knobs on SPACE; not saved in "state")
     enum("freeze", "Freeze", ["Off", "Rec", "Loop"], 0),       # punch-in looper (src/dsp/freeze.h)
     enum("demo", "Demo", ["Off", "On"], 0),
@@ -82,7 +93,7 @@ READOUTS = [
 for role, r in zip(["a", "b", "c"], READOUTS):
     r["viz"] = {"kind": "custom:tinyvoice_scope", "group": "scope", "role": role, "extra_keys": ["scope"]}
 
-# The Freeze banner spans SPACE knobs 7-8 (Freeze, Freeze Len): Off / ARMED /
+# The Freeze banner spans SPACE knobs 4-5 (Freeze, Freeze Len): Off / ARMED /
 # REC / LOOP, the take length, and whether a transport clock is seen. The knobs
 # under it still turn; their values show in the header while touched.
 for role, k in zip(["a", "b"], ["freeze", "freeze_len"]):
@@ -102,11 +113,14 @@ for k in ["key", "scale", "retune", "glide", "beauty"]:
 
 # Pages. VOICE is the home page (and the root's knobs): Mode, the five
 # contextual knobs, Mix, Level. PITCH: the tuning knobs and the scope on 5-7.
-# SPACE: delay, reverb, Freeze (its banner spans knobs 7-8). MORE: Gate and Latch.
+# SPACE: Spread, Tone, Demo, Freeze (its banner spans knobs 4-5). MORE: Gate and
+# Latch. (No delay or reverb: removed on 2026-10-11, the chain has its own.)
 VOICE = ["mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain"]
 PITCH = ["key", "scale", "retune", "glide", "pitch", "target", "cents", "beauty"]
-SPACE = ["delay", "feedback", "reverb", "spread", "tone", "demo", "freeze", "freeze_len"]
+SPACE = ["spread", "tone", "demo", "freeze", "freeze_len"]
 MORE  = ["gate", "latch"]
+# Voice FX: its whole UI. No Mode, Key, Scale, Gate, Level or Latch: the engine runs with the automatic front end.
+VOICEFX = ["vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix"]
 MENU_ONLY = {}
 
 CHAIN = PARAMS + READOUTS
@@ -129,9 +143,12 @@ a('        "component_type": "audio_fx",')
 a('        "audio_in": true,')
 a('        "midi_in": true,')
 a('        "ui_hierarchy": {')
-a('            "modes": null,')
+# `modes` + `mode_param`: the host adds its own Mode page (writes `engine`), and the
+# active mode's level is the walk root. Level names are the modes, lower case.
+a('            "modes": ["vocoder", "voicefx"],')
+a('            "mode_param": "engine",')
 a('            "levels": {')
-a('                "root": {')
+a('                "vocoder": {')
 a('                    "name": "TinyVoice",')
 a('                    "knobs": %s,' % line(VOICE))
 a('                    "params": [')
@@ -141,12 +158,20 @@ a('                        {"level": "SPACE", "label": "Space"},')
 a('                        {"level": "MORE", "label": "More"}')
 a('                    ]')
 a('                },')
-for name, label, keys, last in [("VOICE", "Voice", VOICE, False), ("PITCH", "Pitch", PITCH, False), ("SPACE", "Space", SPACE, False), ("MORE", "More", MORE, True)]:
+for name, label, keys, last in [("VOICE", "Voice", VOICE, False), ("PITCH", "Pitch", PITCH, False), ("SPACE", "Space", SPACE, False), ("MORE", "More", MORE, False)]:
     a('                "%s": {' % name)
     a('                    "label": "%s",' % label)
     a('                    "knobs": %s,' % line(keys))
     a('                    "params": %s' % line([entry(k) for k in keys + MENU_ONLY.get(name, [])]))
     a('                }%s' % ("" if last else ","))
+a('                "voicefx": {')
+a('                    "name": "Voice FX",')
+a('                    "list_param": "vf_preset",')
+a('                    "count_param": "vf_preset_count",')
+a('                    "name_param": "vf_preset_name",')
+a('                    "knobs": %s,' % line(VOICEFX))
+a('                    "params": %s' % line(VOICEFX))
+a('                }')
 a('            }')
 a('        },')
 a('        "chain_params": [')
@@ -176,6 +201,10 @@ with open(hdr, "w") as f:
     f.write("/* GENERATED by scripts/gen_module_json.py from the same table as module.json. Do not edit. */\n")
     f.write("#ifndef TINYVOICE_MODULE_META_H\n#define TINYVOICE_MODULE_META_H\n\n")
     f.write("/* chain_params with @1@ .. @5@ for the char1 / char2 / mod / char4 / char5 names (filled per mode by dsp.c) */\n")
-    f.write("static const char VT_CHAIN_PARAMS_JSON[] = " + c_string(cp) + ";\n\n")
+    # One string per parameter: the whole array is over the 4095 characters a
+    # pedantic C compiler must accept in one literal. No part splits a @n@ name placeholder.
+    parts = ["[" + json.dumps(served[0], separators=(",", ":"))] + [("," + json.dumps(p, separators=(",", ":"))) for p in served[1:]] + ["]"]
+    assert all(len(x) < 4000 for x in parts) and "".join(parts) == cp
+    f.write("static const char *const VT_CHAIN_PARAMS_PARTS[] = {\n" + (",\n".join("    " + c_string(x) for x in parts)) + "\n};\n\n")
     f.write("static const char VT_UI_HIERARCHY_JSON[] = " + c_string(uh) + ";\n\n#endif\n")
 print("wrote", len(PARAMS), "params +", len(READOUTS), "readouts;", hdr, "with", len(cp), "+", len(uh), "bytes of JSON")

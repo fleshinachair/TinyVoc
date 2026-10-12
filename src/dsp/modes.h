@@ -14,12 +14,14 @@
  *   Prism   char1 harmony spread        char2 tape warmth            mod humanize
  *   Double  char1 double detune         char2 stereo width           mod drift
  *   Tape    char1 pitch -12..0 st       char2 wow & flutter          mod saturation
- *   Scream  char1 pitch -12..+2 st (0.5 = -5)  char2 throat (formant scale, 0.5 = 0.8)
- *           mod grit   char4 narrow (telephone band 350 Hz..3.4 kHz at 0.5)   char5 line hiss
+ *           char4 Tone (alias, dsp.c)   char5 tape hiss (0 below 0.5)
+ *   Scream  char1 pitch -12..-3 st (0.5 = -8)  char2 throat (formant scale, 0.5 = 0.84)
+ *           mod grit (0 = clean)   char4 narrow (90 Hz..4.8 kHz at 0.5, a phone line at 1)
+ *           char5 line hiss (0 below 0.5)
  *   HardTune char1 amount 0..200% (0.5 = full)  char2 formant -12..+12 st   mod vibrato
  *           (char4 glide and char5 sensitivity live in dsp.c)
- *   Prism   char4 refract (inharmonic glass: micro-tonal voice offsets, a frequency-shifted
- *           pair, 0 = the plain harmonizer)   char5 shimmer (modulated comb)
+ *   Prism   char4 refract (inharmonic glass: a frequency-shifted pair mixed in at
+ *           0.8 char4^2, 0 = the plain harmonizer)   char5 shimmer (comb feedback)
  */
 #ifndef TINYVOICE_MODES_H
 #define TINYVOICE_MODES_H

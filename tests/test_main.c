@@ -8,7 +8,6 @@
 #include "daft.h"
 #include "imogen.h"
 #include "modes.h"
-#include "verb.h"
 #include "demo.h"
 #include "psola.h"
 
@@ -820,12 +819,12 @@ static void test_daft_through_engine(void)
 }
 
 
-/* ------------------------------------------------------ Space: delay */
+/* -------------------------------------------------------- dry path */
 
-static float g_imp[5 * VT_SAMPLE_RATE];
+static float g_imp[VT_SAMPLE_RATE];
 
 /* Impulse (0.5) at frame 0 through Daft with no notes and mix 0, i.e. a pure
- * dry signal into the delay stage: the output is dry + repeats. The input's
+ * dry signal: the output is the dry path alone. The input's
  * 120 Hz high-pass would smear an impulse (and take its DC), so the test feeds
  * the filter's inverse: 0.5/a, then 0.5(1/a - 1) held, which the high-pass
  * turns back into exactly 0.5 at frame 0 and zeros after it. */
@@ -842,138 +841,19 @@ static void delay_impulse(vt_t *vt, int frames)
     }
 }
 
-static vt_t *delay_rig(const char *ms, const char *fb)
+static void test_dry_passthrough(void)
 {
+    /* Mix 0: the dry vocal passes untouched (the engine's latency is 0 in Robot), and nothing follows it */
     vt_t *vt = dsp_init(VT_SAMPLE_RATE);
     dsp_set_param(vt, "mode", "Robot");
     dsp_set_param(vt, "mix", "0");
     dsp_set_param(vt, "gain", "0");
-    dsp_set_param(vt, "delay", ms);
-    dsp_set_param(vt, "feedback", fb);
-    dsp_set_param(vt, "auto", "Off");                         /* no input AGC: measure the delay alone */
-    return vt;
-}
-
-static double win_sum(int a, int b) { double s = 0; for (int i = a; i < b; i++) s += g_imp[i]; return s; }
-
-static double win_rough(int a, int b)       /* high-frequency share of the window's energy */
-{
-    double e = 0, d = 0;
-    for (int i = a; i < b; i++) { e += (double)g_imp[i] * g_imp[i]; double x = g_imp[i] - g_imp[i - 1]; d += x * x; }
-    return d / e;
-}
-
-static void test_delay_repeats(void)
-{
-    const int D = 4410;                                            /* 100 ms */
-    vt_t *vt = delay_rig("100", "0.5");
-    delay_impulse(vt, 4 * VT_SAMPLE_RATE);
-
-    CHECK(fabs(g_imp[0] - 0.5) < 1e-4);                            /* the dry vocal passes untouched */
-    double quiet = 0;
-    for (int i = 1; i < D - 4; i++) quiet += fabs(g_imp[i]);
-    CHECK(quiet < 1e-5);                                           /* nothing before the first repeat */
-
-    int peak = D - 4;
-    for (int i = D - 4; i < D + 40; i++) if (g_imp[i] > g_imp[peak]) peak = i;
-    if (peak < D || peak > D + 8) printf("  first repeat peaked at %d, expected ~%d\n", peak, D);
-    CHECK(peak >= D && peak <= D + 8);                             /* arrives on time (+ damping lag) */
-
-    double e1 = win_sum(D - 4, D + 300), e2 = win_sum(2 * D - 4, 2 * D + 300), e3 = win_sum(3 * D - 4, 3 * D + 300);
-    if (fabs(e1 - 0.25) > 0.0075) printf("  repeat 1 area %.4f (expect 0.25)\n", e1);
-    CHECK(fabs(e1 - 0.25) < 0.0075);                               /* 0.5 signal x 0.5 return */
-    CHECK(fabs(e2 / e1 - 0.5) < 0.03);                             /* feedback sets the decay */
-    CHECK(fabs(e3 / e2 - 0.5) < 0.03);
-
-    /* each pass through the damping filter smooths the repeat further */
-    double r1 = win_rough(D - 4, D + 300), r3 = win_rough(3 * D - 4, 3 * D + 300);
-    if (!(r3 < 0.8 * r1)) printf("  roughness repeat1 %.3f repeat3 %.3f\n", r1, r3);
-    CHECK(r3 < 0.8 * r1);
-    dsp_cleanup(vt);
-}
-
-static void test_delay_off_and_switching(void)
-{
-    /* delay = 0: bit-exact dry, no tail */
-    vt_t *vt = delay_rig("0", "0.9");
+    dsp_set_param(vt, "auto", "Off");
     delay_impulse(vt, VT_SAMPLE_RATE);
     double tail = 0;
     for (int i = 1; i < VT_SAMPLE_RATE; i++) tail += fabs(g_imp[i]);
     CHECK(fabs(g_imp[0] - 0.5) < 1e-6 && tail < 1e-9);
     dsp_cleanup(vt);
-
-    /* turning the delay on after it was off (and after a different time) lands
-     * on the new time immediately instead of swooping from the old one */
-    vt = delay_rig("300", "0.3");
-    static float blk[2 * 128];
-    for (int b = 0; b < 40; b++) { memset(blk, 0, sizeof blk); dsp_process_block_f(vt, blk, 128); }
-    dsp_set_param(vt, "delay", "0");
-    for (int b = 0; b < 40; b++) { memset(blk, 0, sizeof blk); dsp_process_block_f(vt, blk, 128); }
-    dsp_set_param(vt, "delay", "100");
-    delay_impulse(vt, 3 * 4410);
-    int peak = 4000;
-    for (int i = 4000; i < 4900; i++) if (g_imp[i] > g_imp[peak]) peak = i;
-    if (peak < 4410 || peak > 4418) printf("  re-enabled delay peaked at %d\n", peak);
-    CHECK(peak >= 4410 && peak <= 4418);
-    dsp_cleanup(vt);
-}
-
-static void test_delay_stability_and_balance(void)
-{
-    /* maximum feedback and time, long run: decays, never blows up */
-    vt_t *vt = delay_rig("1000", "0.95");
-    static float big[10 * VT_SAMPLE_RATE];
-    static float blk[2 * 128];
-    int n = 0;
-    float pk_early = 0, pk_late = 0;
-    int bad = 0;
-    while (n < 10 * VT_SAMPLE_RATE) {
-        memset(blk, 0, sizeof blk);
-        if (n == 0) blk[0] = blk[1] = 0.5f;
-        dsp_process_block_f(vt, blk, 128);
-        for (int i = 0; i < 128 && n < 10 * VT_SAMPLE_RATE; i++, n++) {
-            big[n] = blk[2 * i];
-            if (!isfinite(big[n])) bad++;
-            if (n < 3 * VT_SAMPLE_RATE && fabsf(big[n]) > pk_early && n > 100) pk_early = fabsf(big[n]);
-            if (n >= 9 * VT_SAMPLE_RATE && fabsf(big[n]) > pk_late) pk_late = fabsf(big[n]);
-        }
-    }
-    CHECK(bad == 0);
-    CHECK(pk_late < pk_early);
-    CHECK(pk_late < 0.2f);
-    dsp_cleanup(vt);
-
-    /* sweeping the delay time while audio runs stays finite and bounded */
-    vt = delay_rig("100", "0.6");
-    long pos = 0;
-    float peak = 0;
-    for (int step = 0; step < 100; step++) {
-        char ms[16];
-        snprintf(ms, sizeof ms, "%d", 100 + (step * 9) % 900);
-        dsp_set_param(vt, "delay", ms);
-        static float cap[128];
-        run_sine(vt, 440.0, 0.3f, 1, &pos, cap, 128);
-        for (int i = 0; i < 128; i++) { if (!isfinite(cap[i])) bad++; if (fabsf(cap[i]) > peak) peak = fabsf(cap[i]); }
-    }
-    CHECK(bad == 0);
-    CHECK(peak < 1.0f);
-    dsp_cleanup(vt);
-
-    /* a held sine with delay on is louder than dry by at most the feedback-limited gain */
-    static float a[4096], b[4096];
-    vt = delay_rig("0", "0.3");
-    pos = 0;
-    run_sine(vt, 1000.0, 0.3f, 100, &pos, NULL, 0);
-    run_sine(vt, 1000.0, 0.3f, 32, &pos, a, 4096);
-    dsp_cleanup(vt);
-    vt = delay_rig("137", "0.3");
-    pos = 0;
-    run_sine(vt, 1000.0, 0.3f, 400, &pos, NULL, 0);
-    run_sine(vt, 1000.0, 0.3f, 32, &pos, b, 4096);
-    dsp_cleanup(vt);
-    double g = rms_of(b, 4096) / rms_of(a, 4096);
-    if (g < 0.3 || g > 1.75) printf("  delay on/off level ratio %.3f\n", g);
-    CHECK(g > 0.3 && g < 1.75);                                    /* 1 + 0.5/(1-0.3) is the worst case */
 }
 
 /* ------------------------------------------------------------- state */
@@ -984,12 +864,14 @@ static void test_state_roundtrip(void)
     const char *set[][2] = {
         {"mode", "Prism"}, {"key", "F#"}, {"scale", "Dorian"},
         {"retune", "37"}, {"char1", "0.83"}, {"char2", "0.12"}, {"gate", "-42 dB"},
-        {"mix", "0.44"}, {"gain", "-7.5"}, {"delay", "375"}, {"feedback", "0.61"},
+        {"mix", "0.44"}, {"gain", "-7.5"},
         {"spread", "0.71"}, {"tone", "0.4"}, {"glide", "120"}, {"mod", "0.33"},
-        {"reverb", "0.27"}, {"freeze_len", "4 Bars"}, {"beauty", "0.83"}, {"latch", "On"},
+        {"freeze_len", "4 Bars"}, {"beauty", "0.83"}, {"latch", "On"},
         {"char4", "0.77"}, {"char5", "0.21"},
+        {"engine", "VoiceFX"}, {"vf_vowel", "0.62"}, {"vf_tract", "0.31"}, {"vf_peak", "0.88"}, {"vf_choir", "0.73"},
+        {"vf_breath", "0.44"}, {"vf_attack", "0.57"}, {"vf_release", "0.91"}, {"vf_mix", "0.38"},
     };
-    CHECK(sizeof set / sizeof set[0] == VT_P_COUNT - 2);            /* every saved param (not freeze/demo) off its default */
+    CHECK(sizeof set / sizeof set[0] == VT_P_COUNT - 3);            /* every saved param (not freeze, demo or the preset index) off its default */
     for (size_t i = 0; i < sizeof set / sizeof set[0]; i++) CHECK(dsp_set_param(a, set[i][0], set[i][1]) == 0);
 
     char state[1024];
@@ -1012,13 +894,13 @@ static void test_state_roundtrip(void)
     /* tolerant loader: whitespace, unknown keys, nested values, numeric enums, clamping, junk */
     vt_t *c = dsp_init(VT_SAMPLE_RATE);
     const char *messy = " { \"mode\" : \"Robot\" , \"bogus\" : { \"mix\" : 0.1 , \"x\" : [1, \"}\", {\"mode\":\"Snap\"}] },\n"
-                        "  \"mix\":0.25, \"key\": 6, \"root\": \"B\", \"feedback\": 7, \"future_param\": true, \"scale\": \"Nope\" } ";
+                        "  \"mix\":0.25, \"key\": 6, \"root\": \"B\", \"spread\": 7, \"reverb\": 0.5, \"future_param\": true, \"scale\": \"Nope\" } ";
     CHECK(dsp_set_param(c, "state", messy) == 0);
     char v[64];
     dsp_get_param(c, "mode", v, sizeof v);     CHECK(strcmp(v, "Robot") == 0);  /* not clobbered by the nested "Snap" */
     dsp_get_param(c, "mix", v, sizeof v);      CHECK(strcmp(v, "0.25") == 0);   /* top-level, not the nested 0.1 */
     dsp_get_param(c, "key", v, sizeof v);      CHECK(strcmp(v, "F#") == 0);     /* index 6: C, C#, D, D#, E, F, F#; old "root" ignored */
-    dsp_get_param(c, "feedback", v, sizeof v); CHECK(strcmp(v, "0.95") == 0);
+    dsp_get_param(c, "spread", v, sizeof v);   CHECK(strcmp(v, "1") == 0);      /* clamped; the old "reverb" key is ignored */
     dsp_get_param(c, "scale", v, sizeof v);    CHECK(strcmp(v, "Chromatic") == 0);  /* bad value ignored */
 
     CHECK(dsp_set_param(c, "state", "not json") == -1);
@@ -1109,6 +991,12 @@ static int js_str(const char *v, char *out, size_t cap)
     return 1;
 }
 static int js_arr_len(const char *arr) { int n = 0; while (js_elem(arr, n)) n++; return n; }
+/* case-insensitive equality (the host matches mode names to option names that way) */
+static int vt_ieq(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++) if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return 0;
+    return *a == *b;
+}
 
 static char g_module_json[32768];
 
@@ -1298,23 +1186,36 @@ static void test_module_json_matches_params(void)
     static const char *const want[4][8] = {
         { "mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain" },       /* VOICE: Mode, five contextual knobs, Mix, Level */
         { "key", "scale", "retune", "glide", "pitch", "target", "cents", "beauty" }, /* PITCH: scope on 5-7 */
-        { "delay", "feedback", "reverb", "spread", "tone", "demo", "freeze", "freeze_len" }, /* SPACE: Freeze + its length side by side */
+        { "spread", "tone", "demo", "freeze", "freeze_len" },                       /* SPACE: Freeze + its length side by side */
         { "gate", "latch" },                                                         /* MORE: Gate (with Auto) + Latch */
     };
     static const char *const page_names[4] = { "VOICE", "PITCH", "SPACE", "MORE" };
     const char *levels = js_get(js_get(caps, "ui_hierarchy"), "levels");
     CHECK(levels != NULL);
     if (!levels) return;
-    const char *rootlv = js_get(levels, "root");
+    /* the two personalities: `modes` names the root levels, `mode_param` is the param the host's Mode page writes */
+    const char *uih = js_get(caps, "ui_hierarchy");
+    const char *modes_arr = js_get(uih, "modes");
+    CHECK(modes_arr && js_arr_len(modes_arr) == 2);
+    CHECK(js_str(js_get(uih, "mode_param"), s, sizeof s) && strcmp(s, "engine") == 0);
+    CHECK(modes_arr && js_str(js_elem(modes_arr, 0), s, sizeof s) && strcmp(s, "vocoder") == 0);
+    CHECK(modes_arr && js_str(js_elem(modes_arr, 1), s, sizeof s) && strcmp(s, "voicefx") == 0);
+    {   /* the engine param's options are those mode names in the host's own spelling (case aside), so its Mode page commits a value the DSP takes */
+        const vt_param_def *ed = dsp_param_def(VT_P_ENGINE);
+        CHECK(ed && ed->type == VT_PTYPE_ENUM && ed->num_options == 2);
+        CHECK(ed && vt_ieq(ed->options[0], "vocoder") && vt_ieq(ed->options[1], "voicefx"));
+    }
+    const char *rootlv = js_get(levels, "vocoder");
     CHECK(rootlv != NULL);
     if (!rootlv) return;
 
     int nlevels = 0;
     char names[16][32];
     while (js_nth_member(levels, nlevels, names[nlevels], sizeof names[0]) && nlevels < 16) nlevels++;
-    CHECK(nlevels == 5);
-    CHECK(strcmp(names[0], "root") == 0);
+    CHECK(nlevels == 6);
+    CHECK(strcmp(names[0], "vocoder") == 0);
     for (int l = 1; l < nlevels && l < 5; l++) CHECK(strcmp(names[l], page_names[l - 1]) == 0);
+    CHECK(strcmp(names[5], "voicefx") == 0);
 
     int listed_on[VT_P_COUNT] = {0}, referenced[16] = {0};
     for (int l = 0; l < nlevels && l < 5; l++) {
@@ -1356,11 +1257,32 @@ static void test_module_json_matches_params(void)
             }
         }
     }
-    for (int i = 0; i < VT_P_COUNT; i++) {
-        if (listed_on[i] != 1) printf("  param %s listed on %d pages\n", dsp_param_def(i)->key, listed_on[i]);
-        CHECK(listed_on[i] == 1);
+    /* Voice FX: one page of eight, in the agreed order, nothing else */
+    {
+        static const char *const vf[8] = { "vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix" };
+        const char *lv = js_get(levels, "voicefx");
+        const char *knobs = js_get(lv, "knobs"), *params = js_get(lv, "params");
+        CHECK(lv && knobs && params && js_get(lv, "name") != NULL);
+        CHECK(knobs && js_arr_len(knobs) == 8 && params && js_arr_len(params) == 8);
+        /* the preset browser's triple lives on this level and no other: the Vocoder has no browser */
+        CHECK(js_str(js_get(lv, "list_param"), s, sizeof s) && strcmp(s, "vf_preset") == 0);
+        CHECK(js_str(js_get(lv, "count_param"), s, sizeof s) && strcmp(s, "vf_preset_count") == 0);
+        CHECK(js_str(js_get(lv, "name_param"), s, sizeof s) && strcmp(s, "vf_preset_name") == 0);
+        for (int q = 0; q < nlevels; q++)
+            if (strcmp(names[q], "voicefx") != 0) CHECK(js_get(js_get(levels, names[q]), "list_param") == NULL);
+        for (int k = 0; k < 8 && knobs; k++) {
+            CHECK(js_str(js_elem(knobs, k), s, sizeof s) && strcmp(s, vf[k]) == 0);
+            const int id = dsp_param_index(vf[k]);
+            CHECK(id >= 0 && dsp_param_def(id)->type == VT_PTYPE_FLOAT);
+            if (id >= 0) listed_on[id]++;
+        }
     }
-    for (int l = 1; l < nlevels; l++) CHECK(referenced[l]);           /* every page reachable from root */
+    for (int i = 0; i < VT_P_COUNT; i++) {
+        const int want_pages = (i == VT_P_ENGINE || i == VT_P_VF_PRESET) ? 0 : 1;   /* `engine` is the host's Mode page, `vf_preset` its preset browser: not knobs */
+        if (listed_on[i] != want_pages) printf("  param %s listed on %d pages\n", dsp_param_def(i)->key, listed_on[i]);
+        CHECK(listed_on[i] == want_pages);
+    }
+    for (int l = 1; l < nlevels - 1; l++) CHECK(referenced[l]);       /* every vocoder page reachable from its root (Voice FX is reached by the Mode page) */
 }
 
 
@@ -2269,7 +2191,8 @@ static void test_served_metadata(void)
     static char hier[4096];
     CHECK(dsp_get_param(vt, "ui_hierarchy", hier, sizeof hier) > 0);
     const char *lv = js_get(hier, "levels");
-    CHECK(lv && js_get(lv, "root") && js_get(lv, "VOICE") && js_get(lv, "PITCH") && js_get(lv, "SPACE") && js_get(lv, "MORE"));
+    CHECK(lv && js_get(lv, "vocoder") && js_get(lv, "VOICE") && js_get(lv, "PITCH") && js_get(lv, "SPACE") && js_get(lv, "MORE") && js_get(lv, "voicefx"));
+    CHECK(js_get(hier, "modes") != NULL && js_get(hier, "mode_param") != NULL);          /* the host's Mode page writes `engine` */
 
     char small[64];
     CHECK(dsp_get_param(vt, "chain_params", small, sizeof small) == -1);   /* too small: refuses */
@@ -2696,83 +2619,6 @@ static void test_snap_believe(void)
     if (!(nac1 > 0.95 && fabs(20 * log10(lv1 / lv0)) < 4.0)) printf("  believe tight: nac %.3f, level %+.1f dB\n", nac1, 20 * log10(lv1 / lv0));
     CHECK(nac1 > 0.95);
     CHECK(fabs(20 * log10(lv1 / lv0)) < 4.0);
-}
-
-static void test_reverb(void)
-{
-    /* Unit: an impulse rings down at about the designed rate, both sides, wide. */
-    static verb_t v;
-    enum { N = 4 * VT_SAMPLE_RATE };
-    static float L[N], R[N];
-    verb_init(&v, VT_SAMPLE_RATE);
-    verb_set(&v, 1.0f);                                            /* RT60 ~3 s */
-    for (int i = 0; i < 4410; i++) { float l = 0, r = 0; verb_process(&v, 0.0f, &l, &r); }   /* return fades in */
-    for (int i = 0; i < N; i++) {
-        L[i] = R[i] = 0.0f;
-        verb_process(&v, i == 0 ? 1.0f : 0.0f, &L[i], &R[i]);
-    }
-    double e1 = 0, e2 = 0, sxy = 0, sxx = 0, syy = 0, pk = 0;
-    for (int i = (int)(0.3 * VT_SAMPLE_RATE); i < (int)(0.5 * VT_SAMPLE_RATE); i++) e1 += L[i] * L[i] + R[i] * R[i];
-    for (int i = (int)(1.3 * VT_SAMPLE_RATE); i < (int)(1.5 * VT_SAMPLE_RATE); i++) e2 += L[i] * L[i] + R[i] * R[i];
-    for (int i = 0; i < N; i++) {
-        CHECK(isfinite(L[i]) && isfinite(R[i]));
-        if (fabs(L[i]) > pk) pk = fabs(L[i]);
-        if (i > 4410) { sxy += L[i] * R[i]; sxx += L[i] * L[i]; syy += R[i] * R[i]; }
-    }
-    double drop = 10.0 * log10(e1 / (e2 + 1e-30)), corr = sxy / sqrt(sxx * syy + 1e-30);
-    if (!(drop > 12.0 && drop < 30.0 && fabs(corr) < 0.5 && pk < 1.0))
-        printf("  reverb: 1 s decay %.1f dB (RT60 3 s = 20), L/R corr %.2f, peak %.3f\n", drop, corr, pk);
-    CHECK(drop > 12.0 && drop < 30.0);
-    CHECK(fabs(corr) < 0.5);                                       /* a wide return, not mono */
-    CHECK(pk < 1.0);
-
-    /* Amount 0: nothing comes back (the return is exactly zero, so the other
-     * tests' bit-exact expectations hold). */
-    verb_init(&v, VT_SAMPLE_RATE);
-    verb_set(&v, 0.0f);
-    int silent = 1;
-    for (int i = 0; i < VT_SAMPLE_RATE; i++) {
-        float l = 0, r = 0;
-        verb_process(&v, 0.5f * (float)sin(i * 0.05), &l, &r);
-        if (l != 0.0f || r != 0.0f) silent = 0;
-    }
-    CHECK(silent);
-
-    /* Engine: Snap with the reverb up keeps ringing after the voice stops;
-     * with it at 0 the output goes quiet. Stable with everything maxed. */
-    double tail[2];
-    for (int k = 0; k < 2; k++) {
-        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
-        dsp_set_param(vt, "mode", "Snap");
-        dsp_set_param(vt, "auto", "Off");
-        dsp_set_param(vt, "reverb", k ? "0.6" : "0");
-        long pos = 0;
-        static float cap[8192];
-        run_sine(vt, 220.0, 0.4f, 200, &pos, NULL, 0);
-        run_sine(vt, 220.0, 0.0f, 20, &pos, NULL, 0);                /* ~60 ms after the voice stops */
-        run_sine(vt, 220.0, 0.0f, 64, &pos, cap, 8192);
-        tail[k] = rms_of(cap, 8192);
-        dsp_cleanup(vt);
-    }
-    if (!(tail[1] > 0.005 && tail[0] < 1e-4)) printf("  reverb tail: off %.2e, on %.2e\n", tail[0], tail[1]);
-    CHECK(tail[0] < 1e-4);
-    CHECK(tail[1] > 0.005);
-
-    vt_t *vt = dsp_init(VT_SAMPLE_RATE);
-    dsp_set_param(vt, "reverb", "1");
-    dsp_set_param(vt, "delay", "300");
-    dsp_set_param(vt, "feedback", "0.95");
-    dsp_set_param(vt, "gain", "12");
-    unsigned seed = 9;
-    static float blk[256];
-    int ok = 1;
-    for (int b = 0; b < 3000; b++) {
-        for (int i = 0; i < 128; i++) blk[2 * i] = blk[2 * i + 1] = b < 400 ? 0.5f * lcg_noise(&seed) : 0.0f;
-        dsp_process_block_f(vt, blk, 128);
-        for (int i = 0; i < 256; i++) if (!isfinite(blk[i]) || fabsf(blk[i]) > 1.0f) ok = 0;
-    }
-    CHECK(ok);
-    dsp_cleanup(vt);
 }
 
 static void test_macro_labels(void)
@@ -3437,16 +3283,6 @@ static void test_auto_silence_gate(void)
     CHECK(room < -70.0);
     dsp_cleanup(vt);
 
-    /* The gate sits at the input: a reverb tail still rings out after the voice. */
-    vt = dsp_init(VT_SAMPLE_RATE);
-    dsp_set_param(vt, "mode", "Snap");
-    dsp_set_param(vt, "reverb", "0.7");
-    pos = 0;
-    run_sig(vt, sig_voice, 2.0, &pos, &seed, 0.0);
-    double tail = run_sig(vt, sig_room50, 0.4, &pos, &seed, 0.2);
-    if (!(tail > -50.0)) printf("  reverb tail in a pause: %.1f dBFS\n", tail);
-    CHECK(tail > -50.0);
-    dsp_cleanup(vt);
 }
 
 static void test_robot_silent_pauses_and_key(void)
@@ -4560,9 +4396,7 @@ int main(void)
     RUN(test_daft_sibilance);
     RUN(test_filterbank_stability);
     RUN(test_daft_through_engine);
-    RUN(test_delay_repeats);
-    RUN(test_delay_off_and_switching);
-    RUN(test_delay_stability_and_balance);
+    RUN(test_dry_passthrough);
     RUN(test_imogen_auto_chord);
     RUN(test_imogen_midi_chord_and_lead);
     RUN(test_imogen_spread);
@@ -4584,7 +4418,6 @@ int main(void)
     RUN(test_auto_agc_and_gate);
     RUN(test_pad_octave_fold);
     RUN(test_snap_believe);
-    RUN(test_reverb);
     RUN(test_macro_labels);
     RUN(test_demo_snap_shared);
     RUN(test_robot_drone_key);
@@ -4628,6 +4461,11 @@ int main(void)
     RUN(test_hardtune);
     RUN(test_nightcall);
     RUN(test_prism_glass);
+    RUN(test_voicefx);
+    RUN(test_voicefx_isolation);
+    RUN(test_voicefx_transitions);
+    RUN(test_voicefx_numeric_safety);
+    RUN(test_voicefx_presets);
     RUN(test_midi_agnostic_modes);
     RUN(test_latency_budget);
     RUN(test_headroom);

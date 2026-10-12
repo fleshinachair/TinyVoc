@@ -12,6 +12,9 @@
 #define HG_TRIM         0.6f
 #define WK_TRIM         0.40f
 #define WK_PEAK_HZ      1800.0f
+#define WK_HP_HZ        350.0f
+#define WK_LP_HZ        3000.0f
+#define WK_COMP_TARGET  0.12f    /* the mic compressor's mean |x|: every phrase arrives slammed */
 
 static inline float clampf(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
 static inline float flush(float x) { return fabsf(x) < 1e-15f ? 0.0f : x; }
@@ -81,10 +84,18 @@ void vox_init(vox_t *v, float sr)
         v->hg_phi[k] = 0.31f * (float)k;
     }
 
-    svf_set(&v->wk_hp, 300.0f, 0.7071f, sr);
-    svf_set(&v->wk_lp, 3400.0f, 0.7071f, sr);
-    svf_set(&v->wk_peak, WK_PEAK_HZ, 6.0f, sr);
+    svf_set(&v->wk_hp[0], WK_HP_HZ, 0.5412f, sr);
+    svf_set(&v->wk_hp[1], WK_HP_HZ, 1.3066f, sr);
+    svf_set(&v->wk_lp[0], WK_LP_HZ, 0.5412f, sr);
+    svf_set(&v->wk_lp[1], WK_LP_HZ, 1.3066f, sr);
+    svf_set(&v->wk_peak, WK_PEAK_HZ, 2.75f, sr);
     svf_set(&v->wk_nz, 2200.0f, 0.8f, sr);
+    v->wk_cg = 1.0f;
+    v->k_wk_att = 1.0f - expf(-1.0f / (0.002f * sr));
+    v->k_wk_rel = 1.0f - expf(-1.0f / (0.080f * sr));
+    v->k_wk_g   = 1.0f - expf(-1.0f / (0.005f * sr));
+    v->wk_rx = 1.0f;
+    v->k_wk_rx  = 1.0f - expf(-1.0f / (0.004f * sr));
     v->wk_tau = 0.03f * sr;
     v->wk_since = 1e9f;          /* the first edge counts */
     v->wk_open = 1;              /* the voice gate starts open: no burst at load */
@@ -250,34 +261,46 @@ void vox_set_walkie(vox_t *v, float c1, float c2, float mod, float c4, float c5)
 {
     c1 = clampf(c1, 0.0f, 1.0f); c2 = clampf(c2, 0.0f, 1.0f); c5 = clampf(c5, 0.0f, 1.0f);
     const float fc = WK_PEAK_HZ * exp2f((c5 - 0.5f) * 1.0f);       /* 1.27 .. 2.55 kHz */
-    svf_set(&v->wk_peak, fc, 4.0f + 8.0f * c1, v->sr);
-    v->wk_peak_g = 1.0f + 4.0f * c1;                                /* resonant bandpass added to the band */
-    v->wk_drive = 1.0f + 9.0f * c2;
-    v->wk_static = 0.05f * clampf(mod, 0.0f, 1.0f);
+    svf_set(&v->wk_peak, fc, 1.5f + 2.5f * c1, v->sr);
+    v->wk_peak_g = 3.0f * c1;                                       /* presence: +8 dB at 0.5, +12 at 1 */
+    v->wk_drive = 1.0f + 6.0f * c2;
+    v->wk_static = 0.006f + 0.05f * clampf(mod, 0.0f, 1.0f);       /* a receiver always hisses a little */
     v->wk_squelch = 0.5f * clampf(c4, 0.0f, 1.0f);
 }
 
 static void walkie(vox_t *v, float in, int open, float *out)
 {
-    /* PTT: a noise burst as the channel opens and a longer one as it closes
-     * (edges closer than 120 ms to the last are the gate chattering). */
+    /* The receiver's squelch: a short noise burst as the channel opens and the
+     * long "kssh" tail as it drops (edges closer than 120 ms to the last are
+     * the gate chattering). */
     if (open != v->wk_open) {
         v->wk_open = open;
         if (v->wk_since > 0.12f * v->sr) {
-            v->wk_env = 1.0f;
-            v->wk_tau = (open ? 0.025f : 0.045f) * v->sr;
+            v->wk_env = open ? 0.6f : 1.0f;
+            v->wk_tau = (open ? 0.025f : 0.12f) * v->sr;
             v->wk_since = 0.0f;
         }
     }
     if (v->wk_since < 1e9f) v->wk_since += 1.0f;
+    /* ... and between phrases it mutes the channel: no carrier, no sound */
+    v->wk_rx = flush(v->wk_rx + ((open ? 1.0f : 0.0f) - v->wk_rx) * v->k_wk_rx);
 
-    float bp, hp, x;
-    svf_tick(&v->wk_hp, in, &bp, &hp);
-    x = hp;                                                         /* 300 Hz high-pass */
-    x = svf_tick(&v->wk_lp, x, &bp, &hp);                           /* 3.4 kHz low-pass */
+    float bp, hp, x = in;
+    for (int s = 0; s < 2; s++) { svf_tick(&v->wk_hp[s], x, &bp, &hp); x = hp; }   /* 350 Hz high-pass */
+    for (int s = 0; s < 2; s++) x = svf_tick(&v->wk_lp[s], x, &bp, &hp);          /* 3 kHz low-pass */
     float pk, d1;
     svf_tick(&v->wk_peak, x, &pk, &d1);
-    x += v->wk_peak_g * v->wk_peak.k * pk;                         /* the 1.8 kHz horn: k bp has unity gain at its centre */
+    x += v->wk_peak_g * v->wk_peak.k * pk;                         /* presence: k bp has unity gain at its centre */
+
+    /* The handset's mic compressor: every phrase arrives at the same slammed
+     * level (it holds its gain while the channel is shut, so pauses aren't lifted). */
+    if (open) {
+        const float a = fabsf(x);
+        v->wk_cenv = flush(v->wk_cenv + (a - v->wk_cenv) * (a > v->wk_cenv ? v->k_wk_att : v->k_wk_rel));
+        const float goal = clampf(WK_COMP_TARGET / (v->wk_cenv + 1e-6f), 0.25f, 8.0f);
+        v->wk_cg += (goal - v->wk_cg) * v->k_wk_g;
+    }
+    x *= v->wk_cg;
 
     /* diode clipping: a pair with unequal forward drops (0.55 and 0.28), pushed hard */
     const float g = v->wk_drive * 1.6f;
@@ -298,11 +321,11 @@ static void walkie(vox_t *v, float in, int open, float *out)
     } else {
         v->wk_env = 0.0f;
     }
-    if (open && v->wk_static > 0.0f) noise += v->wk_static * rnd(v);
+    if (v->wk_rx > 1e-4f) noise += v->wk_rx * v->wk_static * rnd(v);
     float nb, nh;
     noise = svf_tick(&v->wk_nz, noise, &nb, &nh);
     noise = nb * v->wk_nz.k * 1.6f;                                 /* band-limited hiss, unity at 2.2 kHz */
-    *out = (x + noise) * WK_TRIM;
+    *out = (v->wk_rx * x + noise) * WK_TRIM;
 }
 
 /* ----------------------------------------------------------------- shared */

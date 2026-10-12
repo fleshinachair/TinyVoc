@@ -28,8 +28,9 @@ extern "C" {
 #define VT_GATE_OPTS     22
 
 /* Parameter ids. Order matches module.json chain_params (which then adds three
- * read-only readouts). The order is not the page layout: that is TUNE, SPACE
- * and MORE in scripts/gen_module_json.py. char1/char2/mod are 0..1 macros
+ * read-only readouts). The order is not the page layout: that is VOICE, PITCH,
+ * SPACE and MORE in scripts/gen_module_json.py. (Delay, Feedback and Reverb
+ * were removed on 2026-10-11: a set saved with them ignores those keys.) char1/char2/mod are 0..1 macros
  * whose meaning (and served knob name) depends on the mode. */
 typedef enum {
     VT_P_MODE = 0,    /* enum  the 11 modes below, then Morph and Double */
@@ -44,18 +45,29 @@ typedef enum {
                          *       Steps of 3 dB. The old "auto" key is still accepted (dsp.c). */
     VT_P_MIX,          /* 0..1 wet/dry */
     VT_P_GAIN,          /* dB -12..+12 output level (soft-limited) */
-    VT_P_DELAY,         /* ms 0..1000; < 1 ms = delay off */
-    VT_P_FEEDBACK,      /* 0..0.95, 3.5 kHz damped repeats */
     VT_P_SPREAD,        /* 0..1 stereo width (ADT chorus; Chords also pans its voices) */
     VT_P_TONE,          /* 0..1 lowpass on the wet signal, 1 = open */
     VT_P_GLIDE,         /* ms 0..500 portamento between pad notes / carrier notes */
     VT_P_MOD,           /* macro 3 (contextual modulation) */
-    VT_P_REVERB,        /* 0..1 plate reverb: return level and decay together, 0 = off */
     VT_P_FREEZE_LEN,    /* enum  Free, 1 Bar, 2 Bars, 4 Bars: Rec stops itself after that many bars */
     VT_P_BEAUTY,        /* 0..1 per-mode polish (stereo, detune, air, warmth); 0 = the dry engine */
     VT_P_LATCH,         /* enum  Off, On: Robot/Chords/Prism keep the last pad chord after release */
     VT_P_CHAR4,         /* macro 4 (the VOICE page's knob 5): per mode, a new control or an alias of an old param */
     VT_P_CHAR5,         /* macro 5 (knob 6) */
+    /* Engine switch and the Voice FX page (its own params, so the vocoder side's
+     * settings are never touched by it). Hidden from the Vocoder layout and
+     * the other way round by the ui_hierarchy's `modes` (mode_param = engine). */
+    VT_P_ENGINE,        /* enum  Vocoder, VoiceFX: the module's two personalities */
+    VT_P_VF_VOWEL,      /* 0..1  A E I O U sweep */
+    VT_P_VF_TRACT,      /* 0..1  formant scale (gender / throat), 0.5 = natural */
+    VT_P_VF_PEAK,       /* 0..1  formant Q */
+    VT_P_VF_CHOIR,      /* 0..1  L/R formant detune and stereo spread */
+    VT_P_VF_BREATH,     /* 0..1  noise through the formants + consonant air */
+    VT_P_VF_ATTACK,     /* 0..1  onset swell */
+    VT_P_VF_RELEASE,    /* 0..1  how long the vowel rings on */
+    VT_P_VF_MIX,        /* 0..1  Mix/Drive: wet/dry up to 0.7, then all wet with the drive climbing */
+    VT_P_VF_PRESET,     /* index into the Voice FX bank (presets.c); writing it loads that preset into the
+                         * eight knobs above. Transient: a saved state holds the knob values, not the preset. */
     /* Performance toggles (knobs on SPACE), not saved in "state" */
     VT_P_FREEZE,       /* enum  Off, On: loop the last 4 s of input into the engine */
     VT_P_DEMO,          /* enum  Off, On: built-in sung phrase, modes advance every 4 bars */
@@ -74,7 +86,7 @@ typedef enum {
  *   Snap      Formant Sensitivity Vibrato   Retune* Beauty*
  *   Chords    Level Voicing Humanize        Retune* Beauty*
  *   Prism     Voicing Warmth Humanize       Refract Shimmer
- *   Tape      Drop Flutter Saturate         Tone* Echo*
+ *   Tape      Drop Flutter Saturate         Tone* Hiss
  *   Nightcall Formant Breath Rasp           Duty Cavity
  *   Scream    Pitch Throat Grit             Narrow Line
  *   Dalek     Shift Ring Metal              Drive Width
@@ -92,14 +104,19 @@ typedef enum {
     VT_MODE_MORPH, VT_MODE_DOUBLE, VT_MODE_COUNT   /* Talkbox removed 2026-10-09 */
 } vt_mode;
 #define VT_MACROS 5       /* char1, char2, mod, char4, char5 */
+/* The engine the Voice FX personality runs as: an internal id one past the
+ * Mode knob's 13 (the Mode knob is the Vocoder personality's; VT_MODE_COUNT
+ * stays 13 for every table indexed by it). */
+#define VT_MODE_VOICEFX VT_MODE_COUNT
+typedef enum { VT_ENGINE_VOCODER = 0, VT_ENGINE_VOICEFX } vt_engine;
 
 /* Modes whose output stage keeps its peaks under TINYVOICE_OUTPUT_HEADROOM. */
 static inline int vt_mode_headroom(int mode)
 {
-    return mode == VT_MODE_NIGHTCALL || (mode >= VT_MODE_SCREAM && mode <= VT_MODE_WALKIE);
+    return mode == VT_MODE_NIGHTCALL || (mode >= VT_MODE_SCREAM && mode <= VT_MODE_WALKIE) || mode == VT_MODE_VOICEFX;
 }
 /* The ceiling those modes keep into the master buffer: -6.1 dBFS (10^(-6.1/20)).
- * Applied after Spread, delay and reverb and before Level, so at Level 0 dB no
+ * Applied after Spread and before Level, so at Level 0 dB no
  * peak passes it. */
 #define TINYVOICE_OUTPUT_HEADROOM 0.4955f
 

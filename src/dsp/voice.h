@@ -17,9 +17,11 @@
  *            periods of the voice), c5 Micro 0..4.5 ms
  *            taps: -12, +7, +12 st; held MIDI notes replace them with the intervals
  *            above the lowest held note (a C major triad gives +4, +7)
- *   Walkie   c1 Peak  1.8 kHz resonance, c2 Drive (diode clip), mod Static
- *            (open-channel hiss), c4 Squelch (the PTT noise burst on gate open
- *            and close), c5 Band (peak 1.2..2.6 kHz, 0.5 = 1.8 kHz)
+ *   Walkie   c1 Peak  presence peak (0..+12 dB, 0.5 = +8 dB), c2 Drive (diode
+ *            clip after the mic compressor), mod Static (hiss under the voice:
+ *            a faint floor at 0), c4 Squelch (the receiver's noise burst on gate
+ *            open and its longer tail on close), c5 Band (peak 1.2..2.6 kHz,
+ *            0.5 = 1.8 kHz). Between phrases the receiver mutes the channel.
  */
 #ifndef TINYVOICE_VOICE_H
 #define TINYVOICE_VOICE_H
@@ -67,8 +69,11 @@ typedef struct {
     int   hg_active;
 
     /* ---- Walkie ---- */
-    vox_svf wk_hp, wk_lp, wk_peak, wk_nz;
+    vox_svf wk_hp[2], wk_lp[2], wk_peak, wk_nz;   /* the band: 4th order each side */
     float wk_peak_g, wk_drive, wk_static, wk_squelch;
+    float wk_cenv, wk_cg;             /* mic compressor: level follower and its gain */
+    float k_wk_att, k_wk_rel, k_wk_g;
+    float wk_rx, k_wk_rx;             /* receiver: channel gain (0 between phrases) */
     float wk_dc_x, wk_dc_y, wk_lp1[2];
     float wk_env, wk_tau;             /* squelch burst envelope and its decay time, samples */
     float wk_since;                   /* samples since the last edge */

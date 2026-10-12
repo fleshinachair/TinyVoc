@@ -1,7 +1,7 @@
 /*
  * TinyVoice engine: parameter table, MIDI voice tracking, mode dispatch,
- * delay-compensated dry/wet mix, Tone, Spread chorus, Space-page delay, state
- * snapshot, visualizer feed.
+ * delay-compensated dry/wet mix, Tone, Spread chorus, state snapshot,
+ * visualizer feed.
  * Engines: daft.c (Robot, Nightcall), imogen.c (Chords), modes.c (Snap, Morph,
  * Prism, Double, Tape, Scream, HardTune), voice.c (Dalek, Harmony, Walkie); the
  * pitch modes run on the cher.c tracker.
@@ -14,7 +14,8 @@
 #include "voice.h"
 #include "freeze.h"
 #include "demo.h"
-#include "verb.h"
+#include "vfx.h"
+#include "presets.h"
 #include "vt_floor.h"
 #include "module_meta.h"   /* generated: chain_params / ui_hierarchy JSON */
 
@@ -24,11 +25,6 @@
 #include <string.h>
 
 #define VT_DRY_DELAY 2048   /* power of two; cher latency tops out near 760 samples */
-#define VT_DELAY_LEN 65536  /* power of two; 1000 ms needs 44100-48000 samples */
-#define DELAY_MAX_MS 1000.0f
-#define DELAY_RETURN 0.5f   /* repeat level relative to the signal (-6 dB) */
-#define DELAY_DAMP_HZ 3500.0f
-#define DELAY_SLEW_SEC 0.05f /* delay-time smoothing: knob moves swoop like tape */
 #define VT_CHORUS_LEN 2048  /* power of two; chorus taps reach ~12 ms */
 #define CHORUS_BASE_MS 9.0f
 #define CHORUS_DEPTH_MS 2.5f
@@ -84,6 +80,7 @@ static const char *const k_gate_opts[VT_GATE_OPTS] = {
     "-30 dB", "-27 dB", "-24 dB", "-21 dB", "-18 dB", "-15 dB", "-12 dB", "-9 dB", "-6 dB", "-3 dB", "0 dB",
 };
 static const char *const k_onoff_opts[] = {"Off", "On"};
+static const char *const k_engine_opts[] = {"Vocoder", "VoiceFX"};
 static const char *const k_freeze_opts[] = {"Off", "Rec", "Loop"};   /* = FREEZE_OFF / _REC / _LOOP */
 static const char *const k_freeze_len_opts[] = {"Free", "1 Bar", "2 Bars", "4 Bars"};
 static const int k_freeze_bars[] = { 0, 1, 2, 4 };
@@ -106,18 +103,26 @@ static const vt_param_def k_params[VT_P_COUNT] = {
     [VT_P_GATE]      = ENUM_DEF("gate",   k_gate_opts, 0),       /* Auto */
     [VT_P_MIX]      = FLOAT_DEF("mix",       0.0f,   1.0f,   1.0f),
     [VT_P_GAIN]      = FLOAT_DEF("gain",    -12.0f,  12.0f,   0.0f),
-    [VT_P_DELAY]     = FLOAT_DEF("delay",     0.0f,   DELAY_MAX_MS, 0.0f),
-    [VT_P_FEEDBACK]  = FLOAT_DEF("feedback",  0.0f,   0.95f,  0.3f),
     [VT_P_SPREAD]    = FLOAT_DEF("spread",    0.0f,   1.0f,   0.25f),
     [VT_P_TONE]      = FLOAT_DEF("tone",      0.0f,   1.0f,   1.0f),
     [VT_P_GLIDE]     = FLOAT_DEF("glide",     0.0f,   500.0f, 0.0f),
     [VT_P_MOD]       = FLOAT_DEF("mod",       0.0f,   1.0f,   0.0f),
-    [VT_P_REVERB]    = FLOAT_DEF("reverb",    0.0f,   1.0f,   0.0f),
     [VT_P_FREEZE_LEN] = ENUM_DEF("freeze_len", k_freeze_len_opts, 2),  /* 2 Bars */
     [VT_P_BEAUTY]    = FLOAT_DEF("beauty",    0.0f,   1.0f,   0.5f),
     [VT_P_LATCH]     = ENUM_DEF("latch",      k_onoff_opts, 0),
     [VT_P_CHAR4]     = FLOAT_DEF("char4",     0.0f,   1.0f,   0.5f),
     [VT_P_CHAR5]     = FLOAT_DEF("char5",     0.0f,   1.0f,   0.5f),
+    [VT_P_ENGINE]    = ENUM_DEF("engine",     k_engine_opts, VT_ENGINE_VOCODER),
+    /* defaults = the "Vowel Morph Solo" preset (the test checks it) */
+    [VT_P_VF_VOWEL]  = FLOAT_DEF("vf_vowel",   0.0f,  1.0f,   0.0f),
+    [VT_P_VF_TRACT]  = FLOAT_DEF("vf_tract",   0.0f,  1.0f,   0.5f),
+    [VT_P_VF_PEAK]   = FLOAT_DEF("vf_peak",    0.0f,  1.0f,   0.5f),
+    [VT_P_VF_CHOIR]  = FLOAT_DEF("vf_choir",   0.0f,  1.0f,   0.35f),
+    [VT_P_VF_BREATH] = FLOAT_DEF("vf_breath",  0.0f,  1.0f,   0.15f),
+    [VT_P_VF_ATTACK] = FLOAT_DEF("vf_attack",  0.0f,  1.0f,   0.12f),
+    [VT_P_VF_RELEASE] = FLOAT_DEF("vf_release", 0.0f, 1.0f,   0.3f),
+    [VT_P_VF_MIX]    = FLOAT_DEF("vf_mix",     0.0f,  1.0f,   0.75f),
+    [VT_P_VF_PRESET] = {"vf_preset", VT_PTYPE_FLOAT, 0, 5, 5, NULL, 0, 1},    /* 0..5 = the bank; transient; 5 = Vowel Morph Solo */
     /* performance toggles: never saved in "state" */
     [VT_P_FREEZE]   = TRANSIENT_ENUM_DEF("freeze", k_freeze_opts),
     [VT_P_DEMO]      = TOGGLE_DEF("demo"),
@@ -172,6 +177,7 @@ struct vt {
     vox_t vox;                  /* Dalek, Harmony, Walkie */
     freeze_t freeze;            /* 16 s punch-in looper on the input */
     demo_t demo;                /* built-in sung phrase */
+    vfx_t vfx;                  /* Voice FX: the formant engine of the second personality */
     double demo_time;           /* seconds since Demo was switched on */
     float in_env, agc_goal, agc_gain;   /* Auto input AGC */
     float k_agc_att, k_agc_rel, k_agc_gain;
@@ -215,8 +221,6 @@ struct vt {
     int   gate_mem;             /* Gate option of the last manual level (what "auto Off" returns to) */
     float sw_g, k_sw;           /* wet switch gain 0..1, its per-sample step */
 
-    verb_t verb;                /* Space-page reverb */
-
     /* Tone (2-pole lowpass on the wet signal) and Spread (stereo chorus). */
     float tone_z[2][2];
     float chorus[VT_CHORUS_LEN];
@@ -230,15 +234,6 @@ struct vt {
     float dry[2][VT_DRY_DELAY];
     int   dry_w;
     float dry_d;                /* current dry delay in samples */
-
-    /* Space-page stereo delay. */
-    float dly[2][VT_DELAY_LEN];
-    int   dly_w;
-    float dly_t;                /* smoothed delay time, samples */
-    float dly_ret;              /* smoothed return gain (0 when off) */
-    float dly_lp[2];            /* damping filter state */
-    int   dly_was_on;
-    float dly_slew, dly_damp_a; /* coefficients */
 };
 
 vt_t *dsp_init(int sample_rate)
@@ -257,7 +252,7 @@ vt_t *dsp_init(int sample_rate)
     fx_init(&vt->fx, (float)vt->sample_rate);
     freeze_init(&vt->freeze, (float)vt->sample_rate);
     demo_init(&vt->demo, (float)vt->sample_rate);
-    verb_init(&vt->verb, (float)vt->sample_rate);
+    vfx_init(&vt->vfx, (float)vt->sample_rate);
     vt->label_mode = -1;
     vt->run_mode = -1;
     vt->midi_ch = -1;                       /* omni until the host names the slot's channel */
@@ -282,8 +277,6 @@ vt_t *dsp_init(int sample_rate)
     vt->sg_hold_n  = (int)(SG_HOLD_SEC * (float)vt->sample_rate);
     vt->sg_gain = 1.0f;
     vt->sg_open = 1;
-    vt->dly_slew = 1.0f - expf(-1.0f / (DELAY_SLEW_SEC * (float)vt->sample_rate));
-    vt->dly_damp_a = 1.0f - expf(-2.0f * 3.14159265f * DELAY_DAMP_HZ / (float)vt->sample_rate);
     return vt;
 }
 
@@ -301,6 +294,17 @@ static float clampf(float v, float lo, float hi)
 }
 
 static int apply_state(vt_t *vt, const char *json);
+
+/* Case-insensitive equality: Schwung's Mode page hands back a mode's name in the
+ * spelling it matched (level names are lower case), which must still select it. */
+static int ieq(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++) {
+        const int x = (unsigned char)*a, y = (unsigned char)*b;
+        if ((x >= 'A' && x <= 'Z' ? x + 32 : x) != (y >= 'A' && y <= 'Z' ? y + 32 : y)) return 0;
+    }
+    return *a == *b;
+}
 
 /*
  * The OLED widget's feed (canvas.js reads it as an extra_key, ~5 Hz):
@@ -367,7 +371,7 @@ static const char *const k_macro_names[VT_MODE_COUNT][VT_MACROS] = {
     [VT_MODE_SNAP]      = { "Formant", "Sens",     "Vibrato",  "Retune",  "Beauty"  },
     [VT_MODE_CHORDS]    = { "Level",   "Voicing",  "Humanize", "Retune",  "Beauty"  },
     [VT_MODE_PRISM]     = { "Voicing", "Warmth",   "Humanize", "Refract", "Shimmer" },
-    [VT_MODE_TAPE]      = { "Drop",    "Flutter",  "Saturate", "Tone",    "Echo"    },
+    [VT_MODE_TAPE]      = { "Drop",    "Flutter",  "Saturate", "Tone",    "Hiss"    },
     [VT_MODE_NIGHTCALL] = { "Formant", "Breath",   "Rasp",     "Duty",    "Cavity"  },
     [VT_MODE_SCREAM]    = { "Pitch",   "Throat",   "Grit",     "Narrow",  "Line"    },
     [VT_MODE_DALEK]     = { "Shift",   "Ring",     "Metal",    "Drive",   "Width"   },
@@ -388,7 +392,7 @@ static const int k_slot_alias[VT_MODE_COUNT][2] = {
     [VT_MODE_SNAP]      = { VT_P_RETUNE, VT_P_BEAUTY },
     [VT_MODE_CHORDS]    = { VT_P_RETUNE, VT_P_BEAUTY },
     [VT_MODE_PRISM]     = { SLOT_OWN,    SLOT_OWN },
-    [VT_MODE_TAPE]      = { VT_P_TONE,   VT_P_DELAY },
+    [VT_MODE_TAPE]      = { VT_P_TONE,   SLOT_OWN },
     [VT_MODE_NIGHTCALL] = { SLOT_OWN,    SLOT_OWN },
     [VT_MODE_SCREAM]    = { SLOT_OWN,    SLOT_OWN },
     [VT_MODE_DALEK]     = { SLOT_OWN,    SLOT_OWN },
@@ -432,20 +436,22 @@ static int format_chain_params(const vt_t *vt, char *buf, int buf_len)
 {
     const int mode = (int)vt->p[VT_P_MODE];
     int n = 0;
-    for (const char *t = VT_CHAIN_PARAMS_JSON; *t; t++) {
-        const char *sub = NULL;
-        if (t[0] == '@' && t[1] >= '1' && t[1] <= '5' && t[2] == '@') {
-            sub = k_macro_names[mode][t[1] - '1'];
-            t += 2;
-        }
-        if (sub) {
-            int k = (int)strlen(sub);
-            if (n + k >= buf_len) return -1;
-            memcpy(buf + n, sub, (size_t)k);
-            n += k;
-        } else {
-            if (n + 1 >= buf_len) return -1;
-            buf[n++] = *t;
+    for (size_t part = 0; part < sizeof VT_CHAIN_PARAMS_PARTS / sizeof VT_CHAIN_PARAMS_PARTS[0]; part++) {
+        for (const char *t = VT_CHAIN_PARAMS_PARTS[part]; *t; t++) {
+            const char *sub = NULL;
+            if (t[0] == '@' && t[1] >= '1' && t[1] <= '5' && t[2] == '@') {
+                sub = k_macro_names[mode][t[1] - '1'];
+                t += 2;
+            }
+            if (sub) {
+                int k = (int)strlen(sub);
+                if (n + k >= buf_len) return -1;
+                memcpy(buf + n, sub, (size_t)k);
+                n += k;
+            } else {
+                if (n + 1 >= buf_len) return -1;
+                buf[n++] = *t;
+            }
         }
     }
     buf[n] = '\0';
@@ -506,6 +512,13 @@ int dsp_set_param(vt_t *vt, const char *key, const char *val)
                 return 0;
             }
         }
+        for (int i = 0; i < d->num_options; i++) {                    /* the host's own spelling of an option (case aside) */
+            if (ieq(d->options[i], val)) {
+                vt->p[id] = (float)i;
+                if (id == VT_P_MODE && vt->demo_active) vt->demo_pinned = 1;
+                return 0;
+            }
+        }
         char *end;
         long idx = strtol(val, &end, 10);
         if (end == val || *end != '\0') return -1;
@@ -519,6 +532,13 @@ int dsp_set_param(vt_t *vt, const char *key, const char *val)
     char *end;
     float f = strtof(val, &end);
     if (end == val || !isfinite(f)) return -1;
+    if (id == VT_P_VF_PRESET) {                                   /* the browser writes an index: load that preset into the eight knobs */
+        const vt_preset *ps = vt_preset_get(VT_ENGINE_VOICEFX, (int)lroundf(clampf(f, d->min, d->max)));
+        if (!ps) return -1;
+        vt->p[VT_P_VF_PRESET] = (float)(int)lroundf(clampf(f, d->min, d->max));
+        for (int k = 0; k < VT_PRESET_VALUES; k++) vt->p[VT_P_VF_VOWEL + k] = ps->v[k];
+        return 0;
+    }
     vt->p[id] = clampf(f, d->min, d->max);
     if ((id == VT_P_CHAR4 || id == VT_P_CHAR5) && !vt->restoring) {     /* an alias moves the param it stands for */
         const int a = slot_alias((int)vt->p[VT_P_MODE], id);
@@ -565,6 +585,11 @@ int dsp_get_param(vt_t *vt, const char *key, char *buf, int buf_len)
         }
     } else if (strcmp(key, "auto") == 0) {                        /* the old switch, read-only view of Gate */
         n = snprintf(buf, (size_t)buf_len, "%s", (int)vt->p[VT_P_GATE] == 0 ? "On" : "Off");
+    } else if (strcmp(key, "vf_preset_count") == 0) {              /* the Voice FX level's preset browser (list_param / count_param / name_param) */
+        n = snprintf(buf, (size_t)buf_len, "%d", vt_preset_count(VT_ENGINE_VOICEFX));
+    } else if (strcmp(key, "vf_preset_name") == 0) {
+        const vt_preset *ps = vt_preset_get(VT_ENGINE_VOICEFX, (int)vt->p[VT_P_VF_PRESET]);
+        n = snprintf(buf, (size_t)buf_len, "%s", ps ? ps->name : "");
     } else if (strcmp(key, "voices") == 0) {
         n = snprintf(buf, (size_t)buf_len, "%d", dsp_active_voices(vt));
     } else if (strcmp(key, "name") == 0) {
@@ -938,7 +963,7 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
     int demo_chord_on = 0, demo_notes[VT_MAX_VOICES];
     if (vt->demo_active) {
         const double bar = 240.0 / (double)vt->bpm;                 /* 4 beats */
-        if (!vt->demo_pinned)
+        if (!vt->demo_pinned && (int)vt->p[VT_P_ENGINE] == VT_ENGINE_VOCODER)
             vt->p[VT_P_MODE] = (float)((int)(vt->demo_time / (4.0 * bar)) % VT_MODE_COUNT);
         int m = (int)vt->p[VT_P_MODE];
         if (latch_mode(m)) {
@@ -951,25 +976,29 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
     /* A mode change (knob, state or Demo) renames char1/char2/mod: pulse
      * is_loading so the UI re-reads them. Not in the first second, when a set
      * is being restored (the host's restore waits while is_loading says "1"). */
-    if ((int)vt->p[VT_P_MODE] != vt->label_mode) {
+    const int want_mode = (int)vt->p[VT_P_ENGINE] == VT_ENGINE_VOICEFX ? VT_MODE_VOICEFX : (int)vt->p[VT_P_MODE];
+    if (want_mode != vt->label_mode) {
         if (vt->label_mode >= 0 && vt->warm_samples >= vt->sample_rate)
             vt->loading_blocks = (int)(LABEL_PULSE_SEC * sr / (float)frames);
-        vt->label_mode = (int)vt->p[VT_P_MODE];
+        vt->label_mode = want_mode;
     } else if (vt->loading_blocks > 0) {
         vt->loading_blocks--;
     }
     if (vt->warm_samples < vt->sample_rate) vt->warm_samples += frames;
-    verb_set(&vt->verb, vt->p[VT_P_REVERB]);
 
-    const float mix  = vt->p[VT_P_MIX];
-    const float dry_g = mix >= 0.999f ? 0.0f : 1.0f - mix;          /* 100% wet: no dry at all */
-    const float gain = powf(10.0f, vt->p[VT_P_GAIN] / 20.0f);
     /* The engine that runs this block: the old one until its fade-out has
      * reached silence, then the chosen one (the very first block takes it at
      * once). A knob swept across several modes only lands on the last. */
-    const int want_mode = (int)vt->p[VT_P_MODE];
     if (vt->run_mode < 0 || (vt->run_mode != want_mode && vt->sw_g <= 0.0f)) vt->run_mode = want_mode;
     const int mode = vt->run_mode;
+    /* Voice FX has its own Mix/Drive knob, a fixed Level, and runs with the
+     * automatic front end (Auto's input AGC and voice gate), Tone off and its
+     * own Choir for the stereo chorus: nothing on the pages it hides can leave
+     * it in a state its one page cannot show. */
+    const int vf = mode == VT_MODE_VOICEFX;
+    const float mix  = vf ? clampf(vt->p[VT_P_VF_MIX] / VFX_MIX_KNEE, 0.0f, 1.0f) : vt->p[VT_P_MIX];   /* Voice FX: wet/dry up to the knee, drive above */
+    const float dry_g = mix >= 0.999f ? 0.0f : 1.0f - mix;          /* 100% wet: no dry at all */
+    const float gain = vf ? 1.0f : powf(10.0f, vt->p[VT_P_GAIN] / 20.0f);
     const float sw_goal = mode == want_mode ? 1.0f : 0.0f;
     const int freeze_want = (int)vt->p[VT_P_FREEZE];   /* FREEZE_OFF / _REC / _LOOP */
     {   /* Freeze Len: bars at the host tempo (4 beats a bar), 0 = free punch-out */
@@ -983,7 +1012,7 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
         }
         freeze_set_clock(&vt->freeze, to_db);
     }
-    const int auto_on = (int)vt->p[VT_P_GATE] == 0;                 /* Gate = Auto */
+    const int auto_on = (int)vt->p[VT_P_GATE] == 0 || vf;           /* Gate = Auto (always, in Voice FX) */
     const float gate_manual_db = gate_db_of((int)vt->p[VT_P_GATE] ? (int)vt->p[VT_P_GATE] : vt->gate_mem);
     const int root = (int)vt->p[VT_P_KEY];        /* 0 = C */
     const float c1 = vt->p[VT_P_CHAR1], c2 = vt->p[VT_P_CHAR2], md = vt->p[VT_P_MOD];
@@ -993,26 +1022,16 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
     const float gate_db = auto_on ? -60.0f : gate_manual_db;
 
     /* Tone: 2 x 1-pole lowpass, 400 Hz (0) .. 20 kHz (1); fully open = bypassed. */
-    const int tone_on = vt->p[VT_P_TONE] < 0.999f;
+    const int tone_on = vt->p[VT_P_TONE] < 0.999f && !vf;
     const float tone_a = 1.0f - expf(-2.0f * 3.14159265f * 400.0f * powf(50.0f, vt->p[VT_P_TONE]) / sr);
 
     /* Spread: two modulated taps (quadrature LFO) widen the wet signal. In
      * Robot, Spread pans the vocoder's odd/even bands instead. */
     const float spread = vt->p[VT_P_SPREAD];
-    const float ch_amt = has_bands(mode) ? 0.0f : spread * 0.7f;
+    const float ch_amt = has_bands(mode) ? 0.0f : (vf ? vt->p[VT_P_VF_CHOIR] : spread) * 0.7f;
     const float ch_base = CHORUS_BASE_MS * 0.001f * sr, ch_depth = CHORUS_DEPTH_MS * 0.001f * sr;
     const float ch_inc = CHORUS_RATE_HZ / sr;
     const float k_ch = 1.0f - expf(-1.0f / (0.010f * sr));      /* 10 ms: the amount never steps */
-
-    /* Delay: under 1 ms means off. While off the time is held, and it snaps (no
-     * swoop) the moment the delay is switched on. */
-    const int dly_on = vt->p[VT_P_DELAY] >= 1.0f;
-    float dly_target = vt->p[VT_P_DELAY] * 0.001f * (float)vt->sample_rate;
-    dly_target = clampf(dly_target, 2.0f, (float)(VT_DELAY_LEN - 4));
-    if (dly_on && !vt->dly_was_on) vt->dly_t = dly_target;
-    if (!dly_on) dly_target = vt->dly_t;
-    const float dly_ret_target = dly_on ? DELAY_RETURN : 0.0f;
-    const float fb = dly_on ? vt->p[VT_P_FEEDBACK] : 0.0f;
 
     /* Latch switched: On takes the pads held right now as the chord; Off
      * empties it, which releases the latched voices at once. */
@@ -1064,6 +1083,9 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
         daft_set_stereo(&vt->nc, spread, 0.0f);
         daft_set_talker(&vt->nc, 1, 0.12f + 0.16f * c4, 0.10f + 0.20f * md, 0.35f * c2, 12.0f * c5);
         assign_carriers(vt, &vt->nc, held, vel);
+    } else if (vf) {
+        vfx_set(&vt->vfx, vt->p[VT_P_VF_VOWEL], vt->p[VT_P_VF_TRACT], vt->p[VT_P_VF_PEAK], vt->p[VT_P_VF_CHOIR],
+                vt->p[VT_P_VF_BREATH], vt->p[VT_P_VF_ATTACK], vt->p[VT_P_VF_RELEASE], vt->p[VT_P_VF_MIX]);
     } else if (is_vox(mode)) {
         if (mode == VT_MODE_DALEK) vox_set_dalek(&vt->vox, c1, c2, md, c4, c5);
         else if (mode == VT_MODE_HARMONY) {
@@ -1096,7 +1118,7 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
             imogen_set_character(&vt->imogen, 2.0f * c1, md);
         }
     }
-    if (!has_bands(mode) && !is_vox(mode) && mode != VT_MODE_CHORDS) {
+    if (!has_bands(mode) && !is_vox(mode) && !vf && mode != VT_MODE_CHORDS) {
         fx_set(&vt->fx, &vt->cher, mode, c1, c2, md, spread, vt->p[VT_P_GLIDE], auto_on, root, scale, held);
         fx_set_extra(&vt->fx, c4, c5);
         fx_set_beauty(&vt->fx, beauty);
@@ -1175,6 +1197,10 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
             cher_listen(&vt->cher, mono);
             vt->dry_d *= 0.998f;                             /* vocoder is ~zero latency */
             if (vt->dry_d < 1e-6f) vt->dry_d = 0.0f;
+        } else if (vf) {
+            vfx_process(&vt->vfx, mono, &wet_l, &wet_r);
+            cher_listen(&vt->cher, mono);                    /* a switch back to a pitch mode finds the live voice */
+            dry_follow(vt, 0.0f);
         } else if (is_vox(mode)) {
             vox_process(&vt->vox, mode, mono, vt->sg_open, &wet_l, &wet_r);
             if (mode == VT_MODE_HARMONY) cher_push(&vt->cher, mono);   /* its grain follows the voice's pitch */
@@ -1223,29 +1249,8 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
         float dry_l = ring_read(vt->dry[0], VT_DRY_DELAY - 1, vt->dry_w, vt->dry_d + 1.0f);
         float dry_r = ring_read(vt->dry[1], VT_DRY_DELAY - 1, vt->dry_w, vt->dry_d + 1.0f);
 
-        float sig_l = dry_l * dry_g + wet_l * mix;
-        float sig_r = dry_r * dry_g + wet_r * mix;
-
-        /* Space delay: the repeats are added to the blended vocal. The damping
-         * lowpass sits on the delay output, which is both the return and the
-         * feedback source, so every repeat is darker than the one before. */
-        vt->dly_t += (dly_target - vt->dly_t) * vt->dly_slew;
-        vt->dly_ret += (dly_ret_target - vt->dly_ret) * 0.002f;
-        if (vt->dly_ret < 1e-6f && dly_ret_target == 0.0f) vt->dly_ret = 0.0f;
-        float del_l = ring_read(vt->dly[0], VT_DELAY_LEN - 1, vt->dly_w, vt->dly_t);
-        float del_r = ring_read(vt->dly[1], VT_DELAY_LEN - 1, vt->dly_w, vt->dly_t);
-        vt->dly_lp[0] += (del_l - vt->dly_lp[0]) * vt->dly_damp_a;
-        vt->dly_lp[1] += (del_r - vt->dly_lp[1]) * vt->dly_damp_a;
-        if (fabsf(vt->dly_lp[0]) < 1e-15f) vt->dly_lp[0] = 0.0f;
-        if (fabsf(vt->dly_lp[1]) < 1e-15f) vt->dly_lp[1] = 0.0f;
-        vt->dly[0][vt->dly_w] = sig_l + fb * vt->dly_lp[0];
-        vt->dly[1][vt->dly_w] = sig_r + fb * vt->dly_lp[1];
-        vt->dly_w = (vt->dly_w + 1) & (VT_DELAY_LEN - 1);
-
-        /* Reverb: fed the vocal plus its delay repeats, returned on top. */
-        float out_l = sig_l + vt->dly_ret * vt->dly_lp[0];
-        float out_r = sig_r + vt->dly_ret * vt->dly_lp[1];
-        verb_process(&vt->verb, 0.5f * (out_l + out_r), &out_l, &out_r);
+        float out_l = dry_l * dry_g + wet_l * mix;
+        float out_r = dry_r * dry_g + wet_r * mix;
         if (head) { out_l = headroom(out_l); out_r = headroom(out_r); }   /* new modes: nothing past -6.1 dBFS at Level 0 */
 
         vt->dg_out_ms += (out_l * out_l - vt->dg_out_ms) * vt->k_sg_env_a;
@@ -1256,7 +1261,6 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
         lr[2 * i]     = soft_limit(out_l * gain);
         lr[2 * i + 1] = soft_limit(out_r * gain);
     }
-    vt->dly_was_on = dly_on;
     {   /* diag: holds decay over ~1 s, gate-open share averaged over ~1 s */
         const float k = 1.0f - expf(-(float)frames / sr);
         vt->dg_in_pk -= vt->dg_in_pk * k;

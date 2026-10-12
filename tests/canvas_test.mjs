@@ -112,7 +112,7 @@ c = run({ scope: scope(0, 1, 0.5, 2.0, 0, 0, 0, new Array(16).fill(100)) }, 3200
 check(c.texts.includes("LOOP"), "freeze tag: LOOP while looping (Robot bars too)");
 check(c.outOfBounds === 0, "freeze tag: inside the frame");
 
-// ---- Freeze banner (SPACE knobs 7-8) ----
+// ---- Freeze banner (SPACE knobs 4-5) ----
 check(ov.widgetKinds["custom:tinyvoice_freeze"] && typeof ov.widgetKinds["custom:tinyvoice_freeze"].draw === "function",
       "registers custom:tinyvoice_freeze");
 const drawFz = ov.widgetKinds["custom:tinyvoice_freeze"].draw;

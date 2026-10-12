@@ -14,9 +14,10 @@
         "audio_in": true,
         "midi_in": true,
         "ui_hierarchy": {
-            "modes": null,
+            "modes": ["vocoder", "voicefx"],
+            "mode_param": "engine",
             "levels": {
-                "root": {
+                "vocoder": {
                     "name": "TinyVoice",
                     "knobs": ["mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain"],
                     "params": [
@@ -38,13 +39,21 @@
                 },
                 "SPACE": {
                     "label": "Space",
-                    "knobs": ["delay", "feedback", "reverb", "spread", "tone", "demo", "freeze", "freeze_len"],
-                    "params": ["delay", "feedback", "reverb", "spread", "tone", "demo", "freeze", "freeze_len"]
+                    "knobs": ["spread", "tone", "demo", "freeze", "freeze_len"],
+                    "params": ["spread", "tone", "demo", "freeze", "freeze_len"]
                 },
                 "MORE": {
                     "label": "More",
                     "knobs": ["gate", "latch"],
                     "params": ["gate", "latch"]
+                },
+                "voicefx": {
+                    "name": "Voice FX",
+                    "list_param": "vf_preset",
+                    "count_param": "vf_preset_count",
+                    "name_param": "vf_preset_name",
+                    "knobs": ["vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix"],
+                    "params": ["vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix"]
                 }
             }
         },
@@ -58,18 +67,25 @@
             {"key": "gate", "name": "Gate", "type": "enum", "options": ["Auto", "-60 dB", "-57 dB", "-54 dB", "-51 dB", "-48 dB", "-45 dB", "-42 dB", "-39 dB", "-36 dB", "-33 dB", "-30 dB", "-27 dB", "-24 dB", "-21 dB", "-18 dB", "-15 dB", "-12 dB", "-9 dB", "-6 dB", "-3 dB", "0 dB"], "default": 0},
             {"key": "mix", "name": "Mix", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 1},
             {"key": "gain", "name": "Level", "type": "float", "min": -12, "max": 12, "step": 0.5, "unit": "dB", "default": 0},
-            {"key": "delay", "name": "Delay", "type": "float", "min": 0, "max": 1000, "step": 1, "unit": "ms", "default": 0},
-            {"key": "feedback", "name": "Feedback", "type": "float", "min": 0, "max": 0.95, "step": 0.01, "unit": "%", "default": 0.3},
             {"key": "spread", "name": "Spread", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.25},
             {"key": "tone", "name": "Tone", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 1},
             {"key": "glide", "name": "Glide", "type": "float", "min": 0, "max": 500, "step": 1, "unit": "ms", "default": 0, "viz": {"kind": "custom:tinyvoice_glide", "group": "glide", "role": "a", "extra_keys": ["mode"]}},
             {"key": "mod", "name": "Mod", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0},
-            {"key": "reverb", "name": "Reverb", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0},
             {"key": "freeze_len", "name": "Freeze Len", "type": "enum", "options": ["Free", "1 Bar", "2 Bars", "4 Bars"], "default": 2, "viz": {"kind": "custom:tinyvoice_freeze", "group": "freeze", "role": "b", "extra_keys": ["scope"]}},
             {"key": "beauty", "name": "Beauty", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5, "viz": {"kind": "custom:tinyvoice_beauty", "group": "beauty", "role": "a", "extra_keys": ["mode"]}},
             {"key": "latch", "name": "Latch", "type": "enum", "options": ["Off", "On"], "default": 0, "viz": {"kind": "custom:tinyvoice_latch", "group": "latch", "role": "a", "extra_keys": ["mode"]}},
             {"key": "char4", "name": "Char 4", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5},
             {"key": "char5", "name": "Char 5", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5},
+            {"key": "engine", "name": "Engine", "type": "enum", "options": ["Vocoder", "VoiceFX"], "default": 0},
+            {"key": "vf_vowel", "name": "Vowel", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.0},
+            {"key": "vf_tract", "name": "Tract", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5},
+            {"key": "vf_peak", "name": "Peak", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.5},
+            {"key": "vf_choir", "name": "Choir", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.35},
+            {"key": "vf_breath", "name": "Breath", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.15},
+            {"key": "vf_attack", "name": "Attack", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.12},
+            {"key": "vf_release", "name": "Release", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.3},
+            {"key": "vf_mix", "name": "Mix/Drv", "type": "float", "min": 0, "max": 1, "step": 0.01, "unit": "%", "default": 0.75},
+            {"key": "vf_preset", "name": "Preset", "type": "float", "min": 0, "max": 5, "step": 1, "default": 5},
             {"key": "freeze", "name": "Freeze", "type": "enum", "options": ["Off", "Rec", "Loop"], "default": 0, "viz": {"kind": "custom:tinyvoice_freeze", "group": "freeze", "role": "a", "extra_keys": ["scope"]}},
             {"key": "demo", "name": "Demo", "type": "enum", "options": ["Off", "On"], "default": 0},
             {"key": "pitch", "name": "Pitch", "type": "float", "min": 0, "max": 2000, "step": 0.1, "unit": "Hz", "default": 0, "access": "read", "viz": {"kind": "custom:tinyvoice_scope", "group": "scope", "role": "a", "extra_keys": ["scope"]}},
