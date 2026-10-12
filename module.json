@@ -3,7 +3,7 @@
     "name": "TinyVoice",
     "abbrev": "TVO",
     "version": "1.0.0",
-    "description": "Vocal processor: vocoder and carrier modes (Robot, Snap, Chords, Prism, Tape, Nightcall) and voice transformers (Scream, Dalek, HardTune, Harmony, Walkie)",
+    "description": "Two engines for the voice: a 13-mode vocoder and voice transformer (Robot, Snap, Chords, Prism, Tape, Nightcall, Scream, Dalek, HardTune, Harmony, Walkie, Morph, Double) and Voice FX, a one-page talking formant filter with presets",
     "author": "Mat Taylor",
     "dsp": "tinyvoice.so",
     "api_version": 2,

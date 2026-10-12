@@ -1041,6 +1041,25 @@ static void test_module_json_matches_params(void)
     CHECK(js_str(js_get(root, "component_type"), s, sizeof s) && strcmp(s, "audio_fx") == 0);
     CHECK(js_get(root, "api_version") && atoi(js_get(root, "api_version")) == 2);
 
+    /* release.json, read by Schwung's module catalog: the version it advertises is module.json's, and it points at
+     * that version's TinyVoice.tar.gz on this repo's releases */
+    {
+        static char rel[1024];
+        FILE *f = fopen("release.json", "rb");
+        if (!f) f = fopen("../release.json", "rb");
+        CHECK(f != NULL);
+        if (f) {
+            const size_t n = fread(rel, 1, sizeof rel - 1, f);
+            rel[n] = '\0';
+            fclose(f);
+            char ver[32], url[256], want[256];
+            CHECK(js_str(js_get(root, "version"), ver, sizeof ver));
+            CHECK(js_get(rel, "version") != NULL && js_str(js_get(rel, "version"), s, sizeof s) && strcmp(s, ver) == 0);
+            snprintf(want, sizeof want, "https://github.com/fleshinachair/TinyVoice/releases/download/v%s/TinyVoice.tar.gz", ver);
+            CHECK(js_str(js_get(rel, "download_url"), url, sizeof url) && strcmp(url, want) == 0);
+        }
+    }
+
     /* Everything the host reads lives under "capabilities". */
     const char *caps = js_get(root, "capabilities");
     CHECK(caps != NULL);

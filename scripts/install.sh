@@ -25,11 +25,4 @@ echo "installing to $MOVE_USER@$MOVE_HOST:$DEST"
 STAGE="$(dirname "$(dirname "$(dirname "$DEST")")")/.stage-$MODULE_ID"      # same filesystem, outside modules/
 tar -C "$SRC" -cf - . | ssh "$MOVE_USER@$MOVE_HOST" "rm -rf '$STAGE' && mkdir -p '$STAGE' '$DEST' && tar -C '$STAGE' -xf - && chmod 755 '$STAGE'/*.so && rm -f '$DEST/dsp.so' '$DEST/ui.js' '$DEST/ui_chain.js' && for f in '$STAGE'/*; do mv -f \"\$f\" '$DEST'/; done && rm -rf '$STAGE'"
 
-# The module was called VocalTron (id "vocaltron"), then TinyVoc (id "tinyvoc"),
-# until it became TinyVoice. Remove those old installs so the browser doesn't list them too.
-for OLD in vocaltron tinyvoc; do
-    LEGACY_DIR="$(dirname "$DEST")/$OLD"
-    ssh "$MOVE_USER@$MOVE_HOST" "if [ -d '$LEGACY_DIR' ]; then rm -rf '$LEGACY_DIR' && echo 'removed the old $LEGACY_DIR'; fi"
-done
-
 echo "done. Reload the module (or restart Schwung) to pick up the new $MODULE_ID.so."

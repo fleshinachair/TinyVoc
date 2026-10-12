@@ -5,11 +5,11 @@
 - **Vocoder** is the deep one: sing into the Move, lean on the pads, and turn your voice into a hard-tuned robot, a talkbox, a one-finger choir, a Dalek, a walkie-talkie or a frozen drone. Thirteen modes, three pages of controls.
 - **Voice FX** is the quick one: a talking filter. Your voice (or a bass line) through a bank of vowel formants, with eight knobs on a single page, six ready-made presets, and a built-in funk groove so you can audition everything without routing a thing.
 
-TinyVoice (formerly TinyVoc) is an audio FX module for [Schwung](https://github.com/charlesvestal/schwung). **v1.0.0 is a public preview (beta)**: it runs well on a Move, but it was tuned on synthetic voices, a built-in groove and a built-in mic, not across lots of singers. See [Known limitations](#known-limitations).
+TinyVoice is an audio FX module for [Schwung](https://github.com/charlesvestal/schwung). **v1.0.0 is a public preview (beta)**: it runs well on a Move, but it was tuned on synthetic voices, a built-in groove and a built-in mic, not across lots of singers. See [Known limitations](#known-limitations).
 
 - [Two engines, one switch](#two-engines-one-switch)
 - [Vocoder](#vocoder): the modes · the contextual knobs
-- [Voice FX](#voice-fx): the eight knobs · the presets · the Audition phrase and Showcase Tour
+- [Voice FX](#voice-fx): the eight knobs · the presets · the Audition phrase
 - [Setup and gain staging](#setup-and-gain-staging)
 - [Performance walkthroughs](#performance-walkthroughs)
 - [Parameter map](#parameter-map)
@@ -28,7 +28,7 @@ The first page in the module is the **Mode** page, a list drawn by Schwung: pick
 | What it does | Multi-band speech/carrier vocoder, plus the voice transformers: 13 modes | A four-formant vowel filter on the voice: no vocoder bands, no carrier, no pitch tracking |
 | Pads | Play the carrier, set target notes, make chords (mode-dependent) | Not used |
 | Gate / Level / Key / Scale / Latch | Yours to set | Hidden. Voice FX always runs with **Auto** on, Tone off and Level at 0 dB |
-| Demo | A built-in sung phrase that tours the modes | A built-in 8-bar electro-funk phrase, with a **Showcase Tour** that moves the knobs for you |
+| Demo | A built-in sung phrase that tours the modes | A built-in 8-bar electro-funk phrase, with the knobs moving on their own |
 
 Nothing you set in one engine changes the other: Voice FX has its own parameters, and a test checks that its output is bit-identical whatever the Vocoder's Mode, Key, Gate, Level, Mix, Tone, Spread or pads are set to.
 
@@ -124,36 +124,22 @@ The **Presets** page is Schwung's own browser: **turn the jog wheel** to step th
 | 5 | **Alien Choir** | 0.60 | 0.833 | 0.55 | 1.00 | 0.85 | 0.30 | 0.55 | 0.80 | Tract up 0.4 octave, full width, lots of air |
 | 6 | **Vowel Morph Solo** | 0.00 | 0.50 | 0.50 | 0.35 | 0.15 | 0.12 | 0.30 | 0.75 | Neutral and balanced, for riding Vowel across all five vowels by hand |
 
-### The Audition phrase and Showcase Tour (Audition page)
+### The Audition phrase (Audition page)
 
-The **Audition** page has one knob: **Demo** (Off / On). With Demo **On**, Voice FX ignores its input and plays a built-in **eight-bar electro-funk phrase** through the filter while the **Showcase Tour** moves the knobs for you, so you can hear what the engine does with nothing routed in. With Demo **Off**, your track's audio passes through your own knobs as normal.
-
-**The phrase**
+The **Audition** page has one knob: **Demo** (Off / On). With Demo **On**, Voice FX ignores its input and plays a built-in **eight-bar electro-funk phrase** through the filter, so you can hear what the engine does with nothing routed in. With Demo **Off**, your track's audio passes through your own knobs as normal.
 
 - **Tone:** bright, harmonic-rich dual-saw voices (two saws a few cents apart) through a pluck filter that opens on each hit, with snappy 1-1.5 ms attacks, ideal for exciting formants.
 - **Composition:** D minor, 128 sixteenths: **Dm7 · Dm7 · Bbmaj7 · Cadd9 · Dm7 · Dm7 · Gm7 · A7** (the turnaround), with a syncopated bass line (D2 up to C4: roots, octaves, a fifth and a seventh, in three patterns that answer one another) under **staccato four-note chord stabs**, all of them off the beat.
 - **Tempo:** the Move's tempo. Every hit restarts its oscillators, so the loop repeats exactly (16 s at 120 bpm). It starts from bar 1 when you turn Demo on and is not locked to the transport.
 - **Where it sits:** it replaces the input before the formants and drive. The bass stays above the 120 Hz input high-pass (see [Setup](#setup-and-gain-staging)), so its fundamentals are heard.
-
-**The Showcase Tour ("ghost hands")**
-
-With Demo On, the Tour moves five of the eight knobs for you across the phrase's eight bars, then loops seamlessly back to bar 1. It works on *effective* values inside the engine: **your knob positions are never changed** (nor what is saved with the set). Breath, Attack and Release stay yours.
-
-| Bars | Phase | What moves |
-|---|---|---|
-| 1-2 | **Neutral baseline** | Low resonance (Peak 0.15), mostly the raw synth (Mix/Drv 0.30), vowel A: what the synth sounds like |
-| 3-4 | **Vowel Morph** | Vowel glides **u → o → a → e → i**, half a bar each (straight from one vowel to the next), with Peak 0.5 and a wet, clean sound, so the synth talks |
-| 5-6 | **Drive & Peak** | Mix/Drv climbs 0.7 → 1.0 into saturation while Peak ramps 0.5 → 0.95: aggressive, squelchy talkbox grit on an open "ah" |
-| 7-8 | **Tract & Choir** | Tract dives to a deep chest voice, swings up to soprano and returns to natural, while Choir opens to full stereo width and closes again |
-
-While the Tour plays, the Vowel, Tract, Peak, Choir and Mix/Drv knobs (and so a preset's values for them) do nothing: the Tour sets them. A preset's Breath, Attack and Release still apply. To hear a preset, turn Demo Off and play through it.
+- **The knobs move by themselves:** while the phrase plays, Vowel, Tract, Peak, Choir and Mix/Drv sweep through their ranges over the eight bars (and you see them turn on the display), so a preset's values for those five don't apply while it runs. Breath, Attack and Release stay yours. Your own settings are never changed. Turn one of the five yourself, or choose a preset, and Demo switches off and that knob is yours. To hear a preset, turn Demo Off and play through it.
 
 The Audition page is separate from the eight Main knobs on purpose: the Mode page and the preset browser are drawn by Schwung and have no room for a switch, so Demo has a page of its own. The Vocoder's Demo (the sung phrase) is untouched.
 
 ### Auditioning Voice FX in thirty seconds
 
 1. On the Mode page, pick **VoiceFX**.
-2. Go to the **Audition** page and turn **Demo** On. The funk phrase starts and the **Showcase Tour** plays: sixteen seconds that show the raw synth, a vowel sweep, drive and squelch, then chest voice, soprano and a wide choir, and around again.
+2. Go to the **Audition** page and turn **Demo** On. The funk phrase starts and the knobs sweep on their own: the raw synth, then a vowel sweep, drive and squelch, then chest voice, soprano and a wide choir, around its eight bars.
 3. Turn Demo Off, then click through the six presets on the **Presets** page and sing (or play a bass line) through each.
 4. On **Main**, ride **Vowel** (knob 1) across A-E-I-O-U, push **Peak** and **Mix/Drv**, and open **Release** for a tail. Turn Demo Off and sing.
 
@@ -244,7 +230,7 @@ Move has eight encoders in a **4 × 2 grid** (cells 1–4 on the top row, 5–8 
 | | 6 | **Attack** | 0–1, 0.5 … 120 ms swell |
 | | 7 | **Release** | 0–1, 0 = no tail |
 | | 8 | **Mix/Drv** | 0–1, wet/dry to 0.7, then drive ×1.3 … ×5 |
-| Audition | 1 | **Demo** | Off, On: the funk phrase replaces the input and the Showcase Tour moves Vowel, Tract, Peak, Choir and Mix/Drv over the 8 bars. Not saved |
+| Audition | 1 | **Demo** | Off, On: the funk phrase replaces the input, and Vowel, Tract, Peak, Choir and Mix/Drv move on their own over its 8 bars. Not saved |
 
 ### Jog wheel
 
@@ -273,7 +259,7 @@ TinyVoice defines no jog-wheel functions of its own. The jog wheel is Schwung's 
 
   | | per block |
   |---|---|
-  | **Voice FX** (any preset, phrase or tour running) | **≈ 0.12 ms** (about 5 % of the block) |
+  | **Voice FX** (any preset, phrase running) | **≈ 0.12 ms** (about 5 % of the block) |
   | Dalek, Walkie | 0.08–0.10 ms |
   | Nightcall, Robot | 0.18–0.20 ms |
   | HardTune, Tape, Morph, Double, Scream, Harmony | 0.31–0.38 ms |
@@ -299,7 +285,7 @@ ssh ableton@move.local "tar -C /data/UserData/schwung/modules/audio_fx -xzf - &&
 ssh ableton@move.local "nohup /data/UserData/schwung/restart-move.sh >/dev/null 2>&1 &"
 ```
 
-Restarting Schwung is needed the first time (and after updates) so the library and the screen widgets load. Then add **TinyVoice** as an audio FX in a slot, after a sound generator such as Line In. (Older TinyVoc / VocalTron installs are separate folders: `scripts/install.sh` removes them; by hand, delete `modules/audio_fx/tinyvoc` and `modules/audio_fx/vocaltron`. Sets saved with the old module still name the old id, so TinyVoice has to be added to them again.)
+Restarting Schwung is needed the first time (and after updates) so the library and the screen widgets load. Then add **TinyVoice** as an audio FX in a slot, after a sound generator such as Line In.
 
 ### From source
 
@@ -327,7 +313,7 @@ The architecture, signal flow, ABI notes and every parameter are in [CLAUDE.md](
 - Robot and Snap still follow pads (their pad behaviour is part of what they are); only Scream, Dalek, Walkie and Tape ignore them.
 - Freeze is experimental (see above). Headsets, external mics and routing other tracks into TinyVoice are untested.
 - Key and Scale are set on the Pitch page; they don't follow Move's project.
-- The Audition phrase starts when Demo is switched on; it is not locked to the transport. The Tour moves values inside the engine, so the knob positions on screen do not move while it plays.
+- The Audition phrase starts when Demo is switched on; it is not locked to the transport.
 - No licence file yet: all rights reserved until one is added.
 
 See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the changelog.
