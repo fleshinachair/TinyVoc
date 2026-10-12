@@ -23,6 +23,18 @@
  * target, and the loop stays in time with the tempo. Stopping early (Loop or
  * Off) still locks what was recorded.
  *
+ * No accidental micro-loops. A loop shorter than a few tens of milliseconds is
+ * a buzzy single-cycle pitch, not a loop, so a take is judged when it is
+ * stopped (Rec -> Loop or Off):
+ *   under FREEZE_REJECT_SEC (50 ms)   a tap: rejected, nothing loops, you stay live
+ *   under FREEZE_MIN_SEC (120 ms)     too short: it keeps recording, whatever is
+ *                                     sung after you let go, until the loop period
+ *                                     (the take less its crossfade) is 120 ms, then
+ *                                     locks into what you asked for (Loop or Off);
+ *                                     asking for Rec again meanwhile carries on as a
+ *                                     normal take
+ *   otherwise                         locked at exactly what you recorded, as before.
+ *
  * The loop wraps with a 5 ms equal-power crossfade (the take's last 5 ms fade
  * into its first), and live <-> loop switches fade over 10 ms: no clicks.
  * Whatever the engine does on top (pads, Robot carriers, knobs) runs on the
@@ -43,6 +55,8 @@ extern "C" {
 #define FREEZE_SEC 16.0f
 #define FREEZE_MAX (16 * 48000)
 #define FREEZE_XF_SEC 0.005f         /* loop-wrap crossfade */
+#define FREEZE_MIN_SEC 0.120f        /* the shortest loop period a take is allowed to leave behind */
+#define FREEZE_REJECT_SEC 0.050f     /* a take stopped before this is an accidental tap: dropped */
 
 enum { FREEZE_OFF = 0, FREEZE_REC, FREEZE_LOOP };   /* the param's values */
 #define FREEZE_ARMED 3                               /* internal: Rec asked, waiting for the downbeat */
@@ -53,6 +67,9 @@ typedef struct {
     int   state;        /* FREEZE_OFF / _REC / _LOOP: what it is doing */
     int   asked;        /* the param's last value (transitions fire on its changes) */
     int   rec_len;      /* samples in the take being recorded */
+    int   min_len;      /* the shortest take that may be locked: FREEZE_MIN_SEC of loop plus the crossfade */
+    int   reject_len;   /* under this a stopped take is dropped */
+    int   pend;         /* a too-short take was stopped: the state to take once it is long enough (-1 = none) */
     int   loop_len;     /* locked take length (0 = nothing to loop) */
     int   pos;          /* playback position, 0 .. loop_len - xf */
     int   xf;           /* wrap crossfade length */

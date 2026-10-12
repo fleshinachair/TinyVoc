@@ -13,6 +13,10 @@ void freeze_init(freeze_t *f, float sr)
     if (f->xf < 1) f->xf = 1;
     f->k_mix = 1.0f - expf(-1.0f / (0.01f * sr));
     f->to_downbeat = -1;
+    f->min_len = (int)(FREEZE_MIN_SEC * sr) + f->xf;
+    f->reject_len = (int)(FREEZE_REJECT_SEC * sr);
+    if (f->min_len > f->len) f->min_len = f->len;
+    f->pend = -1;
 }
 
 void freeze_set_clock(freeze_t *f, int samples_to_downbeat)
@@ -28,6 +32,7 @@ int freeze_armed(const freeze_t *f)
 static void punch_in(freeze_t *f)
 {
     f->rec_len = 0;                                  /* a fresh take from 0 */
+    f->pend = -1;
     f->state = FREEZE_REC;
 }
 
@@ -85,14 +90,23 @@ float freeze_process(freeze_t *f, float in, int want, float *mix)
      * a full take moves itself to Loop while the param still says Rec. */
     if (want != f->asked) {
         f->asked = want;
+        if (want == FREEZE_REC && f->state == FREEZE_REC) f->pend = -1;   /* Rec again while a short take is being extended: an ordinary take */
         if (want != f->state) {
             if (want == FREEZE_REC) {
                 /* Bar mode with the transport running: wait for the downbeat. */
                 if (f->target > 0 && f->to_downbeat >= 0) f->state = FREEZE_ARMED;
                 else punch_in(f);
             } else if (f->state == FREEZE_REC) {
-                lock_take(f);                            /* stop: exactly what was recorded */
-                f->state = want;
+                if (f->rec_len < f->reject_len) {        /* an accidental tap: nothing loops, you stay live */
+                    f->loop_len = 0;
+                    f->pos = 0;
+                    f->state = want;
+                } else if (f->rec_len < f->min_len) {    /* too short for a loop: record on until it is long enough */
+                    f->pend = want;
+                } else {
+                    lock_take(f);                        /* stop: exactly what was recorded */
+                    f->state = want;
+                }
             } else {
                 if (want == FREEZE_LOOP) f->pos = 0;     /* replay the kept take from its start */
                 f->state = want;                         /* (from Armed: cancelled) */
@@ -112,9 +126,14 @@ float freeze_process(freeze_t *f, float in, int want, float *mix)
         /* Bar mode: the period is the target, plus the 5 ms the wrap crossfade
          * eats. Free: until the buffer is full. Either way, lock and loop. */
         const int stop = f->target > 0 ? f->target + f->xf : f->len;
-        if (f->rec_len >= stop || f->rec_len >= f->len) {
+        if (f->pend >= 0 && f->rec_len >= f->min_len) {
+            lock_take(f);                                /* the extended take is long enough: what was asked for, now */
+            f->state = f->pend;
+            f->pend = -1;
+        } else if (f->rec_len >= stop || f->rec_len >= f->len) {
             lock_take(f);
             f->state = FREEZE_LOOP;
+            f->pend = -1;
             f->full = 1;
         }
     }
