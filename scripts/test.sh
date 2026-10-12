@@ -22,7 +22,7 @@ EXTRA=()
 EXE="$OUT/test_runner"
 "${CCMD[@]}" -std=c11 -O1 -g -Wall -Wextra -DVT_TEST_ALLOC "${EXTRA[@]}" \
     -I"$ROOT/src/dsp" \
-    "$ROOT/tests/test_main.c" "$ROOT/src/dsp/dsp.c" "$ROOT/src/dsp/cher.c" "$ROOT/src/dsp/daft.c" "$ROOT/src/dsp/imogen.c" "$ROOT/src/dsp/psola.c" "$ROOT/src/dsp/modes.c" "$ROOT/src/dsp/freeze.c" "$ROOT/src/dsp/demo.c" "$ROOT/src/dsp/voice.c" "$ROOT/src/dsp/verb.c" "$ROOT/src/dsp/vfx.c" "$ROOT/src/dsp/presets.c" \
+    "$ROOT/tests/test_main.c" "$ROOT/src/dsp/dsp.c" "$ROOT/src/dsp/cher.c" "$ROOT/src/dsp/daft.c" "$ROOT/src/dsp/imogen.c" "$ROOT/src/dsp/psola.c" "$ROOT/src/dsp/modes.c" "$ROOT/src/dsp/freeze.c" "$ROOT/src/dsp/demo.c" "$ROOT/src/dsp/voice.c" "$ROOT/src/dsp/verb.c" "$ROOT/src/dsp/vfx.c" "$ROOT/src/dsp/presets.c" "$ROOT/src/dsp/groove.c" \
     -o "$EXE" -lm
 
 cd "$ROOT"      # tests read module.json from the repo root

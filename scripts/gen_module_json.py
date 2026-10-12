@@ -122,6 +122,7 @@ VOICE = ["mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain"]
 PITCH = ["key", "scale", "retune", "glide", "pitch", "target", "cents"]
 MORE  = ["spread", "tone", "freeze", "freeze_len", "gate", "latch", "beauty", "demo"]
 # Voice FX: its whole UI. No Mode, Key, Scale, Gate, Level or Latch: the engine runs with the automatic front end.
+AUDITION = ["demo"]
 VOICEFX = ["vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix"]
 MENU_ONLY = {}
 
@@ -171,7 +172,14 @@ a('                    "list_param": "vf_preset",')
 a('                    "count_param": "vf_preset_count",')
 a('                    "name_param": "vf_preset_name",')
 a('                    "knobs": %s,' % line(VOICEFX))
-a('                    "params": %s' % line(VOICEFX))
+# Audition: Demo, on a page of its own after the eight knobs (the Mode page and the preset browser are
+# drawn by the host, so nothing of ours can sit on them): in Voice FX Demo plays the funk groove.
+a('                    "params": %s' % line(VOICEFX + [{"level": "audition", "label": "Audition"}]))
+a('                },')
+a('                "audition": {')
+a('                    "label": "Audition",')
+a('                    "knobs": %s,' % line(AUDITION))
+a('                    "params": %s' % line(AUDITION))
 a('                }')
 a('            }')
 a('        },')

@@ -1211,10 +1211,11 @@ static void test_module_json_matches_params(void)
     int nlevels = 0;
     char names[16][32];
     while (js_nth_member(levels, nlevels, names[nlevels], sizeof names[0]) && nlevels < 16) nlevels++;
-    CHECK(nlevels == 5);
+    CHECK(nlevels == 6);
     CHECK(strcmp(names[0], "vocoder") == 0);
     for (int l = 1; l < nlevels && l < 4; l++) CHECK(strcmp(names[l], page_names[l - 1]) == 0);
     CHECK(strcmp(names[4], "voicefx") == 0);
+    CHECK(strcmp(names[5], "audition") == 0);
 
     int listed_on[VT_P_COUNT] = {0}, referenced[16] = {0};
     for (int l = 0; l < nlevels && l < 4; l++) {
@@ -1262,7 +1263,8 @@ static void test_module_json_matches_params(void)
         const char *lv = js_get(levels, "voicefx");
         const char *knobs = js_get(lv, "knobs"), *params = js_get(lv, "params");
         CHECK(lv && knobs && params && js_get(lv, "name") != NULL);
-        CHECK(knobs && js_arr_len(knobs) == 8 && params && js_arr_len(params) == 8);
+        CHECK(knobs && js_arr_len(knobs) == 8 && params && js_arr_len(params) == 9);      /* eight knobs, then the nav to the Audition page */
+        CHECK(params && js_get(js_elem(params, 8), "level") != NULL && js_str(js_get(js_elem(params, 8), "level"), s, sizeof s) && strcmp(s, "audition") == 0);
         /* the preset browser's triple lives on this level and no other: the Vocoder has no browser */
         CHECK(js_str(js_get(lv, "list_param"), s, sizeof s) && strcmp(s, "vf_preset") == 0);
         CHECK(js_str(js_get(lv, "count_param"), s, sizeof s) && strcmp(s, "vf_preset_count") == 0);
@@ -1276,12 +1278,19 @@ static void test_module_json_matches_params(void)
             if (id >= 0) listed_on[id]++;
         }
     }
+    /* Audition: Demo alone on a page after the eight knobs, so those stay untouched (Mode and the preset browser are drawn by the host) */
+    {
+        const char *lv = js_get(levels, "audition");
+        const char *knobs = js_get(lv, "knobs");
+        CHECK(lv && knobs && js_arr_len(knobs) == 1 && js_str(js_elem(knobs, 0), s, sizeof s) && strcmp(s, "demo") == 0);
+        listed_on[VT_P_DEMO]++;
+    }
     for (int i = 0; i < VT_P_COUNT; i++) {
-        const int want_pages = (i == VT_P_ENGINE || i == VT_P_VF_PRESET) ? 0 : 1;   /* `engine` is the host's Mode page, `vf_preset` its preset browser: not knobs */
+        const int want_pages = (i == VT_P_ENGINE || i == VT_P_VF_PRESET) ? 0 : (i == VT_P_DEMO ? 2 : 1);   /* Demo: the vocoder's More page and Voice FX's Audition page */   /* `engine` is the host's Mode page, `vf_preset` its preset browser: not knobs */
         if (listed_on[i] != want_pages) printf("  param %s listed on %d pages\n", dsp_param_def(i)->key, listed_on[i]);
         CHECK(listed_on[i] == want_pages);
     }
-    for (int l = 1; l < nlevels - 1; l++) CHECK(referenced[l]);       /* every vocoder page reachable from its root (Voice FX is reached by the Mode page) */
+    for (int l = 1; l < 4; l++) CHECK(referenced[l]);                 /* every vocoder page reachable from its root (Voice FX is reached by the Mode page) */
 }
 
 
@@ -4465,6 +4474,8 @@ int main(void)
     RUN(test_voicefx_transitions);
     RUN(test_voicefx_numeric_safety);
     RUN(test_voicefx_presets);
+    RUN(test_groove);
+    RUN(test_voicefx_audition);
     RUN(test_midi_agnostic_modes);
     RUN(test_latency_budget);
     RUN(test_headroom);

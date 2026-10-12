@@ -189,6 +189,49 @@ int main(int argc, char **argv)
         CHECK(nonzero);
         CHECK(ms < 2.0);
     }
+    /* Voice FX audition: Demo On plays the funk groove through each of the six presets with nothing routed in
+     * (silence on the input). Each must be audible, rhythmic (hits and gaps), under the -6.1 dBFS ceiling and cheap. */
+    {
+        api->set_param(inst, "freeze", "Off");                             /* a looping take (the scenarios above) would fill the groove's gaps: Freeze sits after the input */
+        api->set_param(inst, "engine", "VoiceFX");
+        api->set_param(inst, "demo", "On");
+        char cnt[16] = "";
+        CHECK(api->get_param(inst, "vf_preset_count", cnt, sizeof cnt) > 0 && atoi(cnt) == 6);
+        for (int p = 0; p < 6; p++) {
+            char idx[8];
+            snprintf(idx, sizeof idx, "%d", p);
+            api->set_param(inst, "vf_preset", idx);
+            char name[40] = "?";
+            api->get_param(inst, "vf_preset_name", name, sizeof name);
+            static int16_t sb[2 * 128];
+            static double win[200];
+            int nw = 0, peak = 0;
+            double acc = 0;
+            struct timespec t0, t1;
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+            for (int b = 0; b < 1100; b++) {                               /* ~3.2 s of the 4 s loop, after 0.4 s to settle */
+                memset(sb, 0, sizeof sb);
+                api->process_block(inst, sb, 128);
+                if (b < 140) continue;
+                for (int i = 0; i < 128; i++) {
+                    const int v = sb[2 * i];
+                    if (abs(v) > peak) peak = abs(v);
+                    acc += (double)v * v;
+                }
+                if (((b - 140) & 15) == 15 && nw < 200) { win[nw++] = sqrt(acc / (16.0 * 128.0)) / 32768.0; acc = 0; }   /* ~46 ms windows */
+            }
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            const double ms = ((t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) / 1e6) / 1100.0;
+            double hi = 0, lo = 1e9;
+            for (int w = 0; w < nw; w++) { if (win[w] > hi) hi = win[w]; if (win[w] < lo) lo = win[w]; }
+            printf("  audition %d %-17s loudest %6.1f dBFS, quietest %6.1f dBFS, peak %5.1f dBFS, %.3f ms/block\n", p, name,
+                   20.0 * log10(hi + 1e-9), 20.0 * log10(lo + 1e-9), 20.0 * log10(peak / 32768.0 + 1e-9), ms);
+            CHECK(hi > 0.005);                                             /* audible with nothing routed in */
+            CHECK(hi > 4.0 * lo);                                          /* a groove: hits and gaps */
+            CHECK(peak <= 16236);                                          /* TINYVOICE_OUTPUT_HEADROOM x 32768 */
+            CHECK(ms < 2.0);
+        }
+    }
     api->set_param(inst, "engine", "Vocoder");
     api->set_param(inst, "demo", "Off");
     api->set_param(inst, "freeze", "Off");

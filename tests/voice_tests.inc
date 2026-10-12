@@ -8,6 +8,7 @@
 #include "ssb.h"
 #include "vfx.h"
 #include "presets.h"
+#include "groove.h"
 
 #define ALL_MODES_N 13
 static const char *const k_all_modes[ALL_MODES_N] = {
@@ -1366,6 +1367,186 @@ static void test_voicefx_numeric_safety(void)
     CHECK(over == 0);
     CHECK(subnormal == 0);
     CHECK(peak > 0.05);                                            /* and it is not silent */
+}
+
+/* ------------------------------------------- Voice FX audition groove */
+
+static void test_groove(void)
+{
+    /* The pattern: 32 sixteenths, D1..D2, syncopated (hits off the beat), a real groove not a pulse */
+    int notes = 0, offbeat = 0, rests = 0, lo = 999, hi = 0;
+    for (int s = 0; s < GROOVE_STEPS; s++) {
+        const int n = groove_note(s);
+        if (n == 0) { rests++; continue; }
+        notes++;
+        if (s % 4) offbeat++;
+        if (n < lo) lo = n;
+        if (n > hi) hi = n;
+    }
+    CHECK(groove_note(-1) == 0 && groove_note(GROOVE_STEPS) == 0);
+    CHECK(lo == 26 && hi == 38);                                            /* D1 (36.7 Hz) .. D2, in this module's numbering (C4 = 60) */
+    CHECK(groove_note(0) == 26);                                            /* it starts on the root */
+    CHECK(notes >= 12 && notes <= 20 && rests >= 12);
+    CHECK(offbeat >= 5);                                                    /* syncopation */
+
+    static float a[4 * VT_SAMPLE_RATE + 200];
+    groove_t g;
+    groove_init(&g, VT_SAMPLE_RATE);
+    int bad = 0;
+    double pk = 0;
+    for (int i = 0; i < 4 * VT_SAMPLE_RATE + 200; i++) {
+        a[i] = groove_process(&g);
+        if (!isfinite(a[i])) bad++;
+        pk = fmax(pk, fabs(a[i]));
+    }
+    CHECK(bad == 0);
+    if (!(pk > 0.1 && pk <= 0.3)) printf("  groove peak %.3f\n", pk);
+    CHECK(pk > 0.1 && pk <= 0.3);                                           /* about what Auto steers a voice to */
+
+    /* Two bars at 120 bpm are exactly 4 s: the loop repeats sample for sample */
+    {
+        static float b[4 * VT_SAMPLE_RATE];
+        groove_t h;
+        groove_init(&h, VT_SAMPLE_RATE);
+        for (int i = 0; i < 4 * VT_SAMPLE_RATE; i++) b[i] = groove_process(&h);
+        double worst = 0;
+        for (int i = 0; i < 200; i++) worst = fmax(worst, fabs(a[4 * VT_SAMPLE_RATE + i] - a[i]));
+        CHECK(worst < 1e-6);
+    }
+    /* A hit is punchy: it reaches its peak within a few ms, and the step ends nearly silent (rests are rests) */
+    {
+        const int step = VT_SAMPLE_RATE / 8;                                 /* a sixteenth at 120 bpm: 5512 samples */
+        double early = 0, late = 0;
+        for (int i = 0; i < step / 8; i++) early = fmax(early, fabs(a[i]));
+        for (int i = step - step / 10; i < step; i++) late = fmax(late, fabs(a[i]));   /* step 0 is a note: its last tenth, past the gate */
+        if (!(early > 0.3 * pk && late < 0.1 * pk)) printf("  groove hit: early %.3f late %.3f of peak %.3f\n", early, late, pk);
+        CHECK(early > 0.3 * pk);
+        CHECK(late < 0.1 * pk);
+        double rest = 0;
+        for (int i = step; i < 3 * step; i++) rest = fmax(rest, fabs(a[i] ));   /* steps 1 and 2 are rests after the hit: only its tail */
+        CHECK(rest < 0.1 * pk);
+    }
+    /* Bright and harmonic-dense: a D1 hit has its fundamental at 37 Hz, so a voice made of it is all harmonics, and a
+     * saw's falling 1/k^2 still leaves real energy at 600 Hz .. 3 kHz, where the formants live (and the Voice FX input
+     * high-pass takes the lowest ones away) */
+    {
+        /* measured at the harmonics themselves (a 37 Hz fundamental puts lines 37 Hz apart: a probe grid wider than
+         * the 8 Hz lines of a 125 ms window would miss most of them) */
+        const double f0 = 440.0 * pow(2.0, (26.0 - 69.0) / 12.0);
+        double body = 0, mid = 0, top = 0;
+        int lines = 0;
+        for (int k = 1; k * f0 < 8000.0; k++) {
+            const double e = goertzel(a, VT_SAMPLE_RATE / 8, k * f0), f = k * f0;
+            if (f >= 120.0 && f < 600.0) body += e;
+            else if (f >= 600.0 && f < 3000.0) { mid += e; lines++; }
+            else if (f >= 3000.0) top += e;
+        }
+        if (!(mid > 0.03 * body && top > 0.0 && top < mid && lines > 50)) printf("  groove spectrum: 120-600 %.2e, 600-3k %.2e, 3-8k %.2e (%d lines)\n", body, mid, top, lines);
+        CHECK(lines > 50);                                                  /* dense: dozens of harmonics through the formant range */
+        CHECK(mid > 0.03 * body);                                           /* with real weight there (a saw pair puts ~5 %), past the 120 Hz high-pass */
+        CHECK(top > 0.0 && top < mid);                                      /* and the pluck filter rolls it off: it is not a hiss */
+    }
+    /* The tempo follows the host: at 90 bpm the loop is 5.33 s, so the second hit comes later */
+    {
+        groove_t h;
+        groove_init(&h, VT_SAMPLE_RATE);
+        groove_set_bpm(&h, 90.0f);
+        int first = -1, second = -1, last_loud = -100000;                     /* an onset is a loud sample long after the last one (a saw crosses any threshold every cycle) */
+        for (int i = 0; i < VT_SAMPLE_RATE && second < 0; i++) {
+            if (fabs(groove_process(&h)) > 0.03) {
+                if (i - last_loud > 1500) { if (first < 0) first = i; else second = i; }
+                last_loud = i;
+            }
+        }
+        /* steps 0 and 3 are both hits: three sixteenths apart */
+        const double want = 3.0 * 60.0 / 90.0 / 4.0 * VT_SAMPLE_RATE;
+        if (!(second > 0 && fabs((second - first) - want) < 0.01 * VT_SAMPLE_RATE)) printf("  groove tempo: hits %d and %d, want %.0f apart\n", first, second, want);
+        CHECK(second > 0 && fabs((second - first) - want) < 0.01 * VT_SAMPLE_RATE);
+    }
+}
+
+/* Demo in Voice FX is the groove, wherever the audio would have come from; with Demo off the track passes. */
+static void test_voicefx_audition(void)
+{
+    static float on_a[VT_SAMPLE_RATE], on_b[VT_SAMPLE_RATE], off_a[VT_SAMPLE_RATE];
+    for (int k = 0; k < 3; k++) {                                          /* 0: Demo On, silence in; 1: Demo On, loud noise in; 2: Demo Off, the same noise */
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "engine", "VoiceFX");
+        if (k < 2) dsp_set_param(vt, "demo", "On");
+        unsigned seed = 99;
+        long pos = 0;
+        static float blk[2 * 128];
+        int n = 0;
+        for (int b = 0; b < 2 * VT_SAMPLE_RATE / 128; b++) {
+            for (int i = 0; i < 128; i++, pos++) blk[2 * i] = blk[2 * i + 1] = k ? 0.6f * lcg_noise(&seed) : 0.0f;
+            dsp_process_block_f(vt, blk, 128);
+            for (int i = 0; i < 128; i++) { if (b >= VT_SAMPLE_RATE / 128 && n < VT_SAMPLE_RATE) (k == 0 ? on_a : k == 1 ? on_b : off_a)[n++] = blk[2 * i]; }
+        }
+        dsp_cleanup(vt);
+    }
+    int same = 1;
+    for (int i = 0; i < VT_SAMPLE_RATE; i++) if (on_a[i] != on_b[i]) same = 0;
+    CHECK(same);                                                           /* Demo On replaces the input entirely: bit-identical whatever came in */
+    CHECK(rms_of(on_a, VT_SAMPLE_RATE) > 2e-3);                            /* and it is heard */
+    int differs = 0;
+    for (int i = 0; i < VT_SAMPLE_RATE; i++) if (off_a[i] != on_a[i]) differs = 1;
+    CHECK(differs);                                                        /* Off: the track passes, not the groove */
+
+    /* Every preset can be auditioned at once: finite, rhythmic (hits and gaps), under the -6.1 dBFS ceiling, audible */
+    for (int p = 0; p < 6; p++) {
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "engine", "VoiceFX");
+        char idx[8];
+        snprintf(idx, sizeof idx, "%d", p);
+        dsp_set_param(vt, "vf_preset", idx);
+        dsp_set_param(vt, "demo", "On");
+        static float blk[2 * 128], l[4 * VT_SAMPLE_RATE];
+        int n = 0, badn = 0;
+        double pk = 0;
+        for (int b = 0; b < 5 * VT_SAMPLE_RATE / 128; b++) {
+            memset(blk, 0, sizeof blk);
+            dsp_process_block_f(vt, blk, 128);
+            for (int i = 0; i < 128; i++) {
+                if (!isfinite(blk[2 * i])) badn++;
+                pk = fmax(pk, fabs(blk[2 * i]));
+                if (b >= VT_SAMPLE_RATE / 128 && n < 4 * VT_SAMPLE_RATE) l[n++] = blk[2 * i];
+            }
+        }
+        /* 50 ms windows over the 4 s loop: the loudest and quietest */
+        double hi = 0, lo2 = 1e9;
+        for (int w = 0; w + 2205 <= n; w += 2205) { const double r = rms_of(l + w, 2205); if (r > hi) hi = r; if (r < lo2) lo2 = r; }
+        const double db = 20.0 * log10(rms_of(l, n) + 1e-12);
+        if (!(badn == 0 && pk <= (double)TINYVOICE_OUTPUT_HEADROOM && db > -40.0 && hi > 4.0 * lo2))
+            printf("  audition preset %d: peak %.3f, rms %.1f dBFS, loudest/quietest window %.1fx\n", p, pk, db, hi / (lo2 + 1e-12));
+        CHECK(badn == 0);
+        CHECK(pk <= (double)TINYVOICE_OUTPUT_HEADROOM);
+        CHECK(db > -40.0);
+        CHECK(hi > 4.0 * lo2);                                             /* a groove: notes and gaps */
+        dsp_cleanup(vt);
+    }
+
+    /* The vocoder's Demo is unchanged: the sung phrase, however the groove runs */
+    {
+        static float va[VT_SAMPLE_RATE], vb[VT_SAMPLE_RATE];
+        for (int k = 0; k < 2; k++) {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "mode", "Snap");
+            if (k) { dsp_set_param(vt, "engine", "VoiceFX"); dsp_set_param(vt, "engine", "Vocoder"); }   /* a visit to Voice FX leaves no trace */
+            dsp_set_param(vt, "demo", "On");
+            static float blk[2 * 128];
+            int n = 0;
+            for (int b = 0; b < 2 * VT_SAMPLE_RATE / 128; b++) {
+                memset(blk, 0, sizeof blk);
+                dsp_process_block_f(vt, blk, 128);
+                for (int i = 0; i < 128; i++) if (b >= VT_SAMPLE_RATE / 128 && n < VT_SAMPLE_RATE) (k ? vb : va)[n++] = blk[2 * i];
+            }
+            dsp_cleanup(vt);
+        }
+        int same = 1;
+        for (int i = 0; i < VT_SAMPLE_RATE; i++) if (va[i] != vb[i]) same = 0;
+        CHECK(same);
+        CHECK(rms_of(va, VT_SAMPLE_RATE) > 1e-3);
+    }
 }
 
 /* ------------------------------------------------ Voice FX presets */

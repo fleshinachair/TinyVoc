@@ -47,7 +47,12 @@
                     "count_param": "vf_preset_count",
                     "name_param": "vf_preset_name",
                     "knobs": ["vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix"],
-                    "params": ["vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix"]
+                    "params": ["vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix", {"level": "audition", "label": "Audition"}]
+                },
+                "audition": {
+                    "label": "Audition",
+                    "knobs": ["demo"],
+                    "params": ["demo"]
                 }
             }
         },

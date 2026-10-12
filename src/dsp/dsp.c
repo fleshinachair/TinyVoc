@@ -15,6 +15,7 @@
 #include "freeze.h"
 #include "demo.h"
 #include "vfx.h"
+#include "groove.h"
 #include "presets.h"
 #include "vt_floor.h"
 #include "module_meta.h"   /* generated: chain_params / ui_hierarchy JSON */
@@ -178,6 +179,7 @@ struct vt {
     freeze_t freeze;            /* 16 s punch-in looper on the input */
     demo_t demo;                /* built-in sung phrase */
     vfx_t vfx;                  /* Voice FX: the formant engine of the second personality */
+    groove_t groove;            /* Voice FX's audition source: what Demo plays there instead of the sung phrase */
     double demo_time;           /* seconds since Demo was switched on */
     float in_env, agc_goal, agc_gain;   /* Auto input AGC */
     float k_agc_att, k_agc_rel, k_agc_gain;
@@ -253,6 +255,7 @@ vt_t *dsp_init(int sample_rate)
     freeze_init(&vt->freeze, (float)vt->sample_rate);
     demo_init(&vt->demo, (float)vt->sample_rate);
     vfx_init(&vt->vfx, (float)vt->sample_rate);
+    groove_init(&vt->groove, (float)vt->sample_rate);
     vt->label_mode = -1;
     vt->run_mode = -1;
     vt->midi_ch = -1;                       /* omni until the host names the slot's channel */
@@ -955,6 +958,7 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
         vt->demo_saved_mode = (int)vt->p[VT_P_MODE];
         vt->demo_time = 0.0;
         demo_reset(&vt->demo);
+        groove_reset(&vt->groove);
     } else if (!demo_on && vt->demo_active) {
         vt->demo_active = 0;
         if (!vt->demo_pinned) vt->p[VT_P_MODE] = (float)vt->demo_saved_mode;
@@ -996,6 +1000,7 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
      * own Choir for the stereo chorus: nothing on the pages it hides can leave
      * it in a state its one page cannot show. */
     const int vf = mode == VT_MODE_VOICEFX;
+    groove_set_bpm(&vt->groove, vt->bpm);                           /* the audition loop follows the host tempo */
     const float mix  = vf ? clampf(vt->p[VT_P_VF_MIX] / VFX_MIX_KNEE, 0.0f, 1.0f) : vt->p[VT_P_MIX];   /* Voice FX: wet/dry up to the knee, drive above */
     const float dry_g = mix >= 0.999f ? 0.0f : 1.0f - mix;          /* 100% wet: no dry at all */
     const float gain = vf ? 1.0f : powf(10.0f, vt->p[VT_P_GAIN] / 20.0f);
@@ -1132,7 +1137,8 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
 
         /* Input stage: the demo phrase replaces the mic; Freeze then records
          * or loops whichever it is. Both the engine and the dry path see it. */
-        if (vt->demo_active) in_l = in_r = demo_process(&vt->demo);   /* every mode, Snap included: Key/Scale act on it */
+        /* Demo: Voice FX is auditioned with the funk groove (no track routed in), every other mode with the sung phrase. */
+        if (vt->demo_active) in_l = in_r = vf ? groove_process(&vt->groove) : demo_process(&vt->demo);   /* every mode, Snap included: Key/Scale act on it */
         /* Mic pre-conditioning: a 1-pole high-pass at 120 Hz on everything
          * (engines, gates, dry path, Freeze takes), so pad taps and chassis
          * thumps on the built-in mic don't open the voice gate, ride the AGC,
