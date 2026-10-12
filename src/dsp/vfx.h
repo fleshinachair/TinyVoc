@@ -40,6 +40,8 @@ typedef struct {
     /* knobs, once per block */
     float vowel, tract, peak, choir, breath, attack, release;
     float drive_k, drive_n;           /* tanh drive and its level compensation */
+    int   ov_on, ov_a, ov_b;          /* the tour's vowel: `ov_t` of the way from vowel ov_a to vowel ov_b (instead of the Vowel knob) */
+    float ov_t;
     float lev, ms_in, ms_out;         /* the leveller: wet RMS held at the input's, so a knob changes tone, not loudness */
     float k_ms, k_lev;
 
@@ -63,6 +65,11 @@ void  vfx_init(vfx_t *v, float sample_rate);
  * the wet/dry part of it is dsp.c's, the saturation is read from it here). */
 void  vfx_set(vfx_t *v, float vowel, float tract, float peak, float choir,
               float breath, float attack, float release, float drive);
+/* Take the vowel from the tour instead of the Vowel knob: `t` (0..1) of the way from vowel `a` to
+ * vowel `b` (0 A, 1 E, 2 I, 3 O, 4 U), a straight glide between the two. The knob's own
+ * value is untouched: vfx_vowel_knob() goes back to it. */
+void  vfx_vowel_pair(vfx_t *v, int a, int b, float t);
+void  vfx_vowel_knob(vfx_t *v);
 /* One sample in, stereo out. */
 void  vfx_process(vfx_t *v, float in, float *out_l, float *out_r);
 

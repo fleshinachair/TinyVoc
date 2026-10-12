@@ -9,6 +9,7 @@
 #include "vfx.h"
 #include "presets.h"
 #include "groove.h"
+#include "tour.h"
 
 #define ALL_MODES_N 13
 static const char *const k_all_modes[ALL_MODES_N] = {
@@ -1371,101 +1372,224 @@ static void test_voicefx_numeric_safety(void)
 
 /* ------------------------------------------- Voice FX audition groove */
 
+static int pc(int midi) { return ((midi % 12) + 12) % 12; }          /* pitch class */
+
 static void test_groove(void)
 {
-    /* The pattern: 32 sixteenths, D1..D2, syncopated (hits off the beat), a real groove not a pulse */
-    int notes = 0, offbeat = 0, rests = 0, lo = 999, hi = 0;
-    for (int s = 0; s < GROOVE_STEPS; s++) {
-        const int n = groove_note(s);
-        if (n == 0) { rests++; continue; }
-        notes++;
-        if (s % 4) offbeat++;
-        if (n < lo) lo = n;
-        if (n > hi) hi = n;
-    }
-    CHECK(groove_note(-1) == 0 && groove_note(GROOVE_STEPS) == 0);
-    CHECK(lo == 26 && hi == 38);                                            /* D1 (36.7 Hz) .. D2, in this module's numbering (C4 = 60) */
-    CHECK(groove_note(0) == 26);                                            /* it starts on the root */
-    CHECK(notes >= 12 && notes <= 20 && rests >= 12);
-    CHECK(offbeat >= 5);                                                    /* syncopation */
+    /* The phrase: eight bars of D minor, a syncopated bass line under staccato chord stabs */
+    static const int root_pc[GROOVE_BARS] = { 2, 2, 10, 0, 2, 2, 7, 9 };                 /* D D Bb C D D G A */
+    static const int chord_pcs[5][4] = { { 2, 5, 9, 0 }, { 10, 2, 5, 9 }, { 0, 4, 7, 2 }, { 10, 2, 5, 7 }, { 1, 4, 7, 9 } };   /* Dm7 Bbmaj7 Cadd9 Gm7 A7 */
+    static const int bar_chord[GROOVE_BARS] = { 0, 0, 1, 2, 0, 0, 3, 4 };
+    CHECK(GROOVE_STEPS == 128 && GROOVE_BARS == 8);
+    CHECK(groove_bass_note(-1) == 0 && groove_bass_note(GROOVE_STEPS) == 0);
+    int notes[4];
+    CHECK(groove_chord(-1, notes) == 0 && groove_chord(GROOVE_STEPS, notes) == 0);
 
-    static float a[4 * VT_SAMPLE_RATE + 200];
+    int bass = 0, bass_off = 0, lo = 999, hi = 0, stabs = 0, stab_on_beat = 0, stab_bad = 0;
+    for (int s = 0; s < GROOVE_STEPS; s++) {
+        const int n = groove_bass_note(s);
+        if (n) {
+            bass++;
+            if (s % 4) bass_off++;
+            if (n < lo) lo = n;
+            if (n > hi) hi = n;
+        }
+        const int c = groove_chord(s, notes);
+        if (c) {
+            stabs++;
+            if (s % 4 == 0) stab_on_beat++;
+            CHECK(c == 4);
+            for (int i = 0; i < 4; i++) {
+                if (notes[i] < 55 || notes[i] > 76) stab_bad++;                           /* G3 .. E5: a lead register above the bass */
+                int ok = 0;
+                for (int k = 0; k < 4; k++) ok |= pc(notes[i]) == chord_pcs[bar_chord[s / 16]][k];
+                if (!ok) stab_bad++;                                                     /* every note belongs to the bar's chord */
+            }
+        }
+    }
+    for (int b = 0; b < GROOVE_BARS; b++) CHECK(pc(groove_bass_note(b * 16)) == root_pc[b]);   /* each bar starts on its chord's root */
+    CHECK(lo == 38 && hi <= 60);                                                          /* D2 up to an octave and a bit: the fundamentals clear the 120 Hz input high-pass */
+    CHECK(bass >= 50 && bass <= 90);
+    CHECK(bass_off >= 20);                                                                /* syncopated */
+    CHECK(stabs >= 25 && stabs <= 45);
+    CHECK(stab_on_beat == 0);                                                             /* all off the beat */
+    CHECK(stab_bad == 0);
+    CHECK(groove_bass_note(0) == 38);                                                     /* it starts on the root */
+
+    static float a[GROOVE_BARS * 2 * VT_SAMPLE_RATE + 400];
     groove_t g;
     groove_init(&g, VT_SAMPLE_RATE);
     int bad = 0;
     double pk = 0;
-    for (int i = 0; i < 4 * VT_SAMPLE_RATE + 200; i++) {
+    for (int i = 0; i < GROOVE_BARS * 2 * VT_SAMPLE_RATE + 400; i++) {                    /* 16 s: the loop at 120 bpm, and a little of its second pass */
         a[i] = groove_process(&g);
         if (!isfinite(a[i])) bad++;
-        pk = fmax(pk, fabs(a[i]));
+        if (i < GROOVE_BARS * 2 * VT_SAMPLE_RATE) pk = fmax(pk, fabs(a[i]));
     }
     CHECK(bad == 0);
-    if (!(pk > 0.1 && pk <= 0.3)) printf("  groove peak %.3f\n", pk);
-    CHECK(pk > 0.1 && pk <= 0.3);                                           /* about what Auto steers a voice to */
+    if (!(pk > 0.1 && pk <= 0.4)) printf("  groove peak %.3f\n", pk);
+    CHECK(pk > 0.1 && pk <= 0.4);                                                         /* about what Auto steers a voice to */
 
-    /* Two bars at 120 bpm are exactly 4 s: the loop repeats sample for sample */
+    /* eight bars at 120 bpm are exactly 16 s: the loop repeats sample for sample */
     {
-        static float b[4 * VT_SAMPLE_RATE];
-        groove_t h;
-        groove_init(&h, VT_SAMPLE_RATE);
-        for (int i = 0; i < 4 * VT_SAMPLE_RATE; i++) b[i] = groove_process(&h);
         double worst = 0;
-        for (int i = 0; i < 200; i++) worst = fmax(worst, fabs(a[4 * VT_SAMPLE_RATE + i] - a[i]));
+        for (int i = 0; i < 400; i++) worst = fmax(worst, fabs(a[GROOVE_BARS * 2 * VT_SAMPLE_RATE + i] - a[i]));
         CHECK(worst < 1e-6);
     }
-    /* A hit is punchy: it reaches its peak within a few ms, and the step ends nearly silent (rests are rests) */
+    /* the bar position the tour rides: 0 at the start, 4/16 of a bar per beat, and wrapping */
     {
-        const int step = VT_SAMPLE_RATE / 8;                                 /* a sixteenth at 120 bpm: 5512 samples */
-        double early = 0, late = 0;
-        for (int i = 0; i < step / 8; i++) early = fmax(early, fabs(a[i]));
-        for (int i = step - step / 10; i < step; i++) late = fmax(late, fabs(a[i]));   /* step 0 is a note: its last tenth, past the gate */
-        if (!(early > 0.3 * pk && late < 0.1 * pk)) printf("  groove hit: early %.3f late %.3f of peak %.3f\n", early, late, pk);
-        CHECK(early > 0.3 * pk);
-        CHECK(late < 0.1 * pk);
-        double rest = 0;
-        for (int i = step; i < 3 * step; i++) rest = fmax(rest, fabs(a[i] ));   /* steps 1 and 2 are rests after the hit: only its tail */
-        CHECK(rest < 0.1 * pk);
+        groove_t h;
+        groove_init(&h, VT_SAMPLE_RATE);
+        CHECK(groove_bar(&h) < 0.001f || groove_bar(&h) > 7.999f);                        /* wound to the instant before step 0: bar 0 (= bar 8) */
+        for (int i = 0; i < 2 * VT_SAMPLE_RATE; i++) groove_process(&h);                  /* 2 s = one bar at 120 bpm */
+        CHECK(fabsf(groove_bar(&h) - 1.0f) < 0.01f);
+        for (int i = 0; i < 14 * VT_SAMPLE_RATE; i++) groove_process(&h);
+        CHECK(fabsf(groove_bar(&h) - 0.0f) < 0.01f || fabsf(groove_bar(&h) - 8.0f) < 0.01f);   /* 16 s: round again */
+        double prev = -1;
+        int monotone = 1;
+        groove_reset(&h);
+        for (int i = 0; i < 4 * VT_SAMPLE_RATE; i++) { groove_process(&h); const double b = groove_bar(&h); if (b < prev) monotone = 0; prev = b; }
+        CHECK(monotone);                                                                  /* it only moves forward within a pass */
     }
-    /* Bright and harmonic-dense: a D1 hit has its fundamental at 37 Hz, so a voice made of it is all harmonics, and a
-     * saw's falling 1/k^2 still leaves real energy at 600 Hz .. 3 kHz, where the formants live (and the Voice FX input
-     * high-pass takes the lowest ones away) */
+    /* A bass hit is punchy and a free step is silent: the first sixteenth is the bass alone, step 4 is free */
     {
-        /* measured at the harmonics themselves (a 37 Hz fundamental puts lines 37 Hz apart: a probe grid wider than
-         * the 8 Hz lines of a 125 ms window would miss most of them) */
-        const double f0 = 440.0 * pow(2.0, (26.0 - 69.0) / 12.0);
+        const int step = VT_SAMPLE_RATE / 8;                                              /* 5512 samples at 120 bpm */
+        double early = 0, free_step = 0;
+        for (int i = 0; i < step / 8; i++) early = fmax(early, fabs(a[i]));
+        for (int i = 4 * step + step / 10; i < 5 * step; i++) free_step = fmax(free_step, fabs(a[i]));   /* nothing sounds on step 4 of bar 1 */
+        if (!(early > 0.2 * pk && free_step < 0.1 * pk)) printf("  groove hit: early %.3f, free step %.3f, peak %.3f\n", early, free_step, pk);
+        CHECK(early > 0.2 * pk);
+        CHECK(free_step < 0.1 * pk);
+        double stab = 0;
+        for (int i = 2 * step; i < 2 * step + step / 3; i++) stab = fmax(stab, fabs(a[i]));    /* the stab on step 2 */
+        CHECK(stab > 0.05 * pk);
+    }
+    /* Bright and harmonic-dense: measured at the harmonics of the bass's D2 (73 Hz lines, 8 Hz wide in a 125 ms window) */
+    {
+        const double f0 = 440.0 * pow(2.0, (38.0 - 69.0) / 12.0);
         double body = 0, mid = 0, top = 0;
         int lines = 0;
         for (int k = 1; k * f0 < 8000.0; k++) {
-            const double e = goertzel(a, VT_SAMPLE_RATE / 8, k * f0), f = k * f0;
+            const double e = goertzel(a, VT_SAMPLE_RATE / 8 / 2, k * f0), f = k * f0;       /* the first half step: the bass before the stab (step 2) */
             if (f >= 120.0 && f < 600.0) body += e;
             else if (f >= 600.0 && f < 3000.0) { mid += e; lines++; }
             else if (f >= 3000.0) top += e;
         }
-        if (!(mid > 0.03 * body && top > 0.0 && top < mid && lines > 50)) printf("  groove spectrum: 120-600 %.2e, 600-3k %.2e, 3-8k %.2e (%d lines)\n", body, mid, top, lines);
-        CHECK(lines > 50);                                                  /* dense: dozens of harmonics through the formant range */
-        CHECK(mid > 0.03 * body);                                           /* with real weight there (a saw pair puts ~5 %), past the 120 Hz high-pass */
-        CHECK(top > 0.0 && top < mid);                                      /* and the pluck filter rolls it off: it is not a hiss */
+        if (!(mid > 0.03 * body && top > 0.0 && top < mid && lines > 25)) printf("  groove spectrum: 120-600 %.2e, 600-3k %.2e, 3-8k %.2e (%d lines)\n", body, mid, top, lines);
+        CHECK(lines > 25);                                                               /* dense: dozens of harmonics through the formant range */
+        CHECK(mid > 0.03 * body);                                                        /* with real weight there (a saw pair puts a few %), past the 120 Hz high-pass */
+        CHECK(top > 0.0 && top < mid);                                                   /* and the pluck filter rolls it off: it is not a hiss */
     }
-    /* The tempo follows the host: at 90 bpm the loop is 5.33 s, so the second hit comes later */
+    /* The tempo follows the host: at 90 bpm the bass hit (step 0) and the first stab (step 2) are two sixteenths apart */
     {
         groove_t h;
         groove_init(&h, VT_SAMPLE_RATE);
         groove_set_bpm(&h, 90.0f);
-        int first = -1, second = -1, last_loud = -100000;                     /* an onset is a loud sample long after the last one (a saw crosses any threshold every cycle) */
+        int first = -1, second = -1, last_loud = -100000;                                /* an onset is a loud sample long after the last one (a saw crosses any threshold every cycle) */
         for (int i = 0; i < VT_SAMPLE_RATE && second < 0; i++) {
-            if (fabs(groove_process(&h)) > 0.03) {
+            if (fabs(groove_process(&h)) > 0.02) {
                 if (i - last_loud > 1500) { if (first < 0) first = i; else second = i; }
                 last_loud = i;
             }
         }
-        /* steps 0 and 3 are both hits: three sixteenths apart */
-        const double want = 3.0 * 60.0 / 90.0 / 4.0 * VT_SAMPLE_RATE;
+        const double want = 2.0 * 60.0 / 90.0 / 4.0 * VT_SAMPLE_RATE;
         if (!(second > 0 && fabs((second - first) - want) < 0.01 * VT_SAMPLE_RATE)) printf("  groove tempo: hits %d and %d, want %.0f apart\n", first, second, want);
         CHECK(second > 0 && fabs((second - first) - want) < 0.01 * VT_SAMPLE_RATE);
     }
 }
 
-/* Demo in Voice FX is the groove, wherever the audio would have come from; with Demo off the track passes. */
+/* The Showcase Tour's ghost hands: four phases of two bars each, on smooth keyframes, seamless at the loop. */
+static double tour_idx(const tour_t *t) { return t->v0 + (t->v1 - t->v0) * (double)t->vt; }      /* where on the A E I O U line (a linear index: for continuity checks) */
+
+static void test_tour(void)
+{
+    tour_t t, u;
+    /* bars 1-2: neutral, low resonance, mostly the raw synth */
+    for (float b = 0.0f; b < 1.75f; b += 0.25f) {                       /* up to the instant before the glide to u begins at bar 1.75 */
+        tour_eval(b, &t);
+        CHECK(t.peak <= 0.2f && t.mix <= 0.35f && t.choir == 0.0f && fabsf(t.tract - 0.5f) < 1e-6f && t.v0 == 0 && t.v1 == 0);
+    }
+    /* bars 3-4: the vowels sweep u -> o -> a -> e -> i, half a bar each */
+    {
+        static const struct { float bar; int vowel; } at[5] = { { 2.0f, 4 }, { 2.5f, 3 }, { 3.0f, 0 }, { 3.5f, 1 }, { 4.0f, 2 } };    /* u o a e i */
+        for (int i = 0; i < 5; i++) {
+            tour_eval(at[i].bar, &t);
+            if (fabs(tour_idx(&t) - at[i].vowel) > 0.02) printf("  tour: bar %.2f is at vowel %.2f, want %d\n", at[i].bar, tour_idx(&t), at[i].vowel);
+            CHECK(fabs(tour_idx(&t) - at[i].vowel) < 0.02);
+        }
+        tour_eval(2.25f, &t);                                                                  /* between u and o: a glide, directly (not through the vowels in between) */
+        CHECK(t.v0 == 4 && t.v1 == 3 && fabsf(t.vt - 0.5f) < 0.01f);
+        tour_eval(2.75f, &t);                                                                  /* between o and a */
+        CHECK(t.v0 == 3 && t.v1 == 0 && fabsf(t.vt - 0.5f) < 0.01f);
+        tour_eval(3.0f, &t);
+        CHECK(t.peak >= 0.45f && t.peak <= 0.55f && t.mix >= 0.65f && t.mix <= 0.75f);         /* talking: moderate Q, wet with no drive (the knee) */
+    }
+    /* bars 5-6: the drive climbs and Peak ramps up, monotonically, to squelch */
+    {
+        double pp = 0, pm = 0;
+        int mono = 1;
+        for (float b = 4.0f; b <= 6.0f; b += 0.01f) {
+            tour_eval(b, &t);
+            if (t.peak + 1e-6 < pp || t.mix + 1e-6 < pm) mono = 0;
+            pp = t.peak; pm = t.mix;
+        }
+        CHECK(mono);
+        tour_eval(5.75f, &t);
+        CHECK(t.peak >= 0.94f && t.mix >= 0.99f);                                             /* hard drive, high Q */
+        tour_eval(4.0f, &t);
+        CHECK(t.mix <= 0.72f && t.peak <= 0.55f);                                             /* from clean */
+    }
+    /* bars 7-8: Tract dives to a deep chest voice, swings up to soprano, returns; Choir opens wide and closes */
+    {
+        double tmin = 1, tmax = 0, cmax = 0;
+        for (float b = 6.0f; b < 8.0f; b += 0.01f) {
+            tour_eval(b, &t);
+            tmin = fmin(tmin, t.tract); tmax = fmax(tmax, t.tract); cmax = fmax(cmax, t.choir);
+        }
+        if (!(tmin <= 0.06 && tmax >= 0.94 && cmax >= 0.999)) printf("  tour: tract %.2f .. %.2f, choir up to %.2f\n", tmin, tmax, cmax);
+        CHECK(tmin <= 0.06);                                                                   /* -0.54 octave */
+        CHECK(tmax >= 0.94);                                                                   /* +0.54 octave */
+        CHECK(cmax >= 0.999);                                                                  /* full width */
+        tour_eval(6.0f, &t); CHECK(t.choir == 0.0f);                                           /* opens from nothing ... */
+        tour_eval(7.25f, &t); CHECK(t.choir >= 0.999f);                                        /* ... holds ... */
+        tour_eval(7.99f, &t); CHECK(t.choir <= 0.01f && fabsf(t.tract - 0.5f) < 0.02f);        /* ... and closes: back to neutral */
+    }
+    /* seamless: bar 8 is bar 0, and nothing jumps anywhere along the way (4096 steps a bar) */
+    {
+        tour_eval(0.0f, &t);
+        tour_eval(8.0f, &u);
+        CHECK(t.peak == u.peak && t.mix == u.mix && t.tract == u.tract && t.choir == u.choir && tour_idx(&t) == tour_idx(&u));
+        tour_eval(7.9999f, &u);
+        CHECK(fabsf(t.peak - u.peak) < 0.01f && fabsf(t.mix - u.mix) < 0.01f && fabsf(t.tract - u.tract) < 0.01f && fabsf(t.choir - u.choir) < 0.01f && fabs(tour_idx(&t) - tour_idx(&u)) < 0.01);
+        double worst[5] = { 0, 0, 0, 0, 0 };
+        tour_eval(0.0f, &u);
+        for (int i = 1; i <= 8 * 4096; i++) {
+            tour_eval((float)i / 4096.0f, &t);
+            worst[0] = fmax(worst[0], fabs(t.peak - u.peak));
+            worst[1] = fmax(worst[1], fabs(t.mix - u.mix));
+            worst[2] = fmax(worst[2], fabs(t.tract - u.tract));
+            worst[3] = fmax(worst[3], fabs(t.choir - u.choir));
+            worst[4] = fmax(worst[4], fabs(tour_idx(&t) - tour_idx(&u)));
+            CHECK(t.v0 >= 0 && t.v0 <= 4 && t.v1 >= 0 && t.v1 <= 4 && t.vt >= 0.0f && t.vt <= 1.0f);
+            CHECK(t.peak >= 0.0f && t.peak <= 1.0f && t.mix >= 0.0f && t.mix <= 1.0f && t.tract >= 0.0f && t.tract <= 1.0f && t.choir >= 0.0f && t.choir <= 1.0f);
+            u = t;
+        }
+        if (worst[0] > 0.005 || worst[1] > 0.005 || worst[2] > 0.005 || worst[3] > 0.005 || worst[4] > 0.02)
+            printf("  tour step: peak %.4f mix %.4f tract %.4f choir %.4f vowel %.4f\n", worst[0], worst[1], worst[2], worst[3], worst[4]);
+        CHECK(worst[0] < 0.005 && worst[1] < 0.005 && worst[2] < 0.005 && worst[3] < 0.005 && worst[4] < 0.02);
+    }
+    /* any bar, however wild, is safe: wraps, negative, NaN, huge */
+    {
+        static const float odd[] = { -3.0f, -0.0f, 8.0f, 8.5f, 16.0f, 1e6f, 1e30f, NAN, INFINITY };
+        for (size_t i = 0; i < sizeof odd / sizeof odd[0]; i++) {
+            tour_eval(odd[i], &t);
+            CHECK(t.v0 >= 0 && t.v0 <= 4 && t.v1 >= 0 && t.v1 <= 4 && t.vt >= 0.0f && t.vt <= 1.0f);
+            CHECK(isfinite(t.peak) && isfinite(t.mix) && isfinite(t.tract) && isfinite(t.choir));
+        }
+    }
+}
+
+/* Demo in Voice FX is the phrase, wherever the audio would have come from; with Demo off the track passes. */
 static void test_voicefx_audition(void)
 {
     static float on_a[VT_SAMPLE_RATE], on_b[VT_SAMPLE_RATE], off_a[VT_SAMPLE_RATE];
@@ -1487,12 +1611,13 @@ static void test_voicefx_audition(void)
     int same = 1;
     for (int i = 0; i < VT_SAMPLE_RATE; i++) if (on_a[i] != on_b[i]) same = 0;
     CHECK(same);                                                           /* Demo On replaces the input entirely: bit-identical whatever came in */
-    CHECK(rms_of(on_a, VT_SAMPLE_RATE) > 2e-3);                            /* and it is heard */
+    CHECK(rms_of(on_a, VT_SAMPLE_RATE) > 1e-3);                            /* and it is heard */
     int differs = 0;
     for (int i = 0; i < VT_SAMPLE_RATE; i++) if (off_a[i] != on_a[i]) differs = 1;
-    CHECK(differs);                                                        /* Off: the track passes, not the groove */
+    CHECK(differs);                                                        /* Off: the track passes, not the phrase */
 
-    /* Every preset can be auditioned at once: finite, rhythmic (hits and gaps), under the -6.1 dBFS ceiling, audible */
+    /* Demo is the Showcase Tour, which moves Vowel, Tract, Peak, Choir and Mix/Drv; a preset still sets Breath, Attack
+     * and Release. Under every preset: finite, rhythmic (the level moves with the notes), under the -6.1 dBFS ceiling, audible. */
     for (int p = 0; p < 6; p++) {
         vt_t *vt = dsp_init(VT_SAMPLE_RATE);
         dsp_set_param(vt, "engine", "VoiceFX");
@@ -1500,38 +1625,38 @@ static void test_voicefx_audition(void)
         snprintf(idx, sizeof idx, "%d", p);
         dsp_set_param(vt, "vf_preset", idx);
         dsp_set_param(vt, "demo", "On");
-        static float blk[2 * 128], l[4 * VT_SAMPLE_RATE];
+        static float blk[2 * 128], l[8 * VT_SAMPLE_RATE];
         int n = 0, badn = 0;
         double pk = 0;
-        for (int b = 0; b < 5 * VT_SAMPLE_RATE / 128; b++) {
+        for (int b = 0; b < 9 * VT_SAMPLE_RATE / 128; b++) {
             memset(blk, 0, sizeof blk);
             dsp_process_block_f(vt, blk, 128);
             for (int i = 0; i < 128; i++) {
                 if (!isfinite(blk[2 * i])) badn++;
                 pk = fmax(pk, fabs(blk[2 * i]));
-                if (b >= VT_SAMPLE_RATE / 128 && n < 4 * VT_SAMPLE_RATE) l[n++] = blk[2 * i];
+                if (b >= VT_SAMPLE_RATE / 128 && n < 8 * VT_SAMPLE_RATE) l[n++] = blk[2 * i];
             }
         }
-        /* 50 ms windows over the 4 s loop: the loudest and quietest */
+        /* 23 ms windows over four bars: the loudest and the quietest */
         double hi = 0, lo2 = 1e9;
-        for (int w = 0; w + 2205 <= n; w += 2205) { const double r = rms_of(l + w, 2205); if (r > hi) hi = r; if (r < lo2) lo2 = r; }
+        for (int w = 0; w + 1024 <= n; w += 1024) { const double r = rms_of(l + w, 1024); if (r > hi) hi = r; if (r < lo2) lo2 = r; }
         const double db = 20.0 * log10(rms_of(l, n) + 1e-12);
-        if (!(badn == 0 && pk <= (double)TINYVOICE_OUTPUT_HEADROOM && db > -40.0 && hi > 4.0 * lo2))
+        if (!(badn == 0 && pk <= (double)TINYVOICE_OUTPUT_HEADROOM && db > -45.0 && hi > 4.0 * lo2))
             printf("  audition preset %d: peak %.3f, rms %.1f dBFS, loudest/quietest window %.1fx\n", p, pk, db, hi / (lo2 + 1e-12));
         CHECK(badn == 0);
         CHECK(pk <= (double)TINYVOICE_OUTPUT_HEADROOM);
-        CHECK(db > -40.0);
+        CHECK(db > -45.0);
         CHECK(hi > 4.0 * lo2);                                             /* a groove: notes and gaps */
         dsp_cleanup(vt);
     }
 
-    /* The vocoder's Demo is unchanged: the sung phrase, however the groove runs */
+    /* The vocoder's Demo is unchanged: the sung phrase, however the phrase runs */
     {
         static float va[VT_SAMPLE_RATE], vb[VT_SAMPLE_RATE];
         for (int k = 0; k < 2; k++) {
             vt_t *vt = dsp_init(VT_SAMPLE_RATE);
             dsp_set_param(vt, "mode", "Snap");
-            if (k) { dsp_set_param(vt, "engine", "VoiceFX"); dsp_set_param(vt, "engine", "Vocoder"); }   /* a visit to Voice FX leaves no trace */
+            if (k) { dsp_set_param(vt, "engine", "VoiceFX"); dsp_set_param(vt, "vf_preset", "3"); dsp_set_param(vt, "engine", "Vocoder"); }   /* a visit to Voice FX leaves no trace */
             dsp_set_param(vt, "demo", "On");
             static float blk[2 * 128];
             int n = 0;
@@ -1542,10 +1667,117 @@ static void test_voicefx_audition(void)
             }
             dsp_cleanup(vt);
         }
-        int same = 1;
-        for (int i = 0; i < VT_SAMPLE_RATE; i++) if (va[i] != vb[i]) same = 0;
-        CHECK(same);
+        int same2 = 1;
+        for (int i = 0; i < VT_SAMPLE_RATE; i++) if (va[i] != vb[i]) same2 = 0;
+        CHECK(same2);
         CHECK(rms_of(va, VT_SAMPLE_RATE) > 1e-3);
+    }
+}
+
+/* The Showcase Tour inside the engine: effective values only, the knobs stay yours. */
+static void test_voicefx_tour(void)
+{
+    static const char *const keys[8] = { "vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix" };
+    static float out[2][5 * VT_SAMPLE_RATE];
+    char b[32];
+
+    /* The stored knobs come out of a whole loop exactly as they went in (the tour never writes them) */
+    {
+        static const char *const mine[8] = { "0.91", "0.13", "0.77", "0.29", "0.44", "0.66", "0.38", "0.52" };
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "engine", "VoiceFX");
+        for (int k = 0; k < 8; k++) dsp_set_param(vt, keys[k], mine[k]);
+        dsp_set_param(vt, "demo", "On");
+        static float blk[2 * 128];
+        for (int bn = 0; bn < 17 * VT_SAMPLE_RATE / 128; bn++) {                       /* 17 s: a whole loop and a bit */
+            memset(blk, 0, sizeof blk);
+            dsp_process_block_f(vt, blk, 128);
+        }
+        for (int k = 0; k < 8; k++) {
+            CHECK(dsp_get_param(vt, keys[k], b, sizeof b) > 0 && fabs(atof(b) - atof(mine[k])) < 1e-6);
+        }
+        static char st[1536];
+        CHECK(dsp_get_param(vt, "state", st, sizeof st) > 0 && strstr(st, "\"vf_vowel\":0.91") && strstr(st, "\"vf_peak\":0.77") && strstr(st, "\"vf_mix\":0.52"));   /* ... and so does what would be saved */
+        dsp_cleanup(vt);
+    }
+    /* Demo is the tour, and the tour decides Vowel, Tract, Peak, Choir and Mix/Drv: whatever those knobs say, the output is
+     * the same. The other three (Breath, Attack, Release) stay yours. With Demo off, the track passes through the knobs and
+     * every one of them matters (white noise in, so there is something for them to shape). */
+    for (int demo = 1; demo >= 0; demo--) {
+        for (int k = 0; k < 2; k++) {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "engine", "VoiceFX");
+            dsp_set_param(vt, "vf_breath", "0.3"); dsp_set_param(vt, "vf_attack", "0.2"); dsp_set_param(vt, "vf_release", "0.3");
+            dsp_set_param(vt, "vf_vowel", k ? "0.9" : "0.1"); dsp_set_param(vt, "vf_tract", k ? "0.8" : "0.2");
+            dsp_set_param(vt, "vf_peak", k ? "0.9" : "0.1"); dsp_set_param(vt, "vf_choir", k ? "0.9" : "0.0");
+            dsp_set_param(vt, "vf_mix", k ? "1.0" : "0.4");
+            if (demo) dsp_set_param(vt, "demo", "On");
+            unsigned seed = 11;
+            long pos = 0;
+            vm_run(vt, vm_noise, &seed, 5.0, &pos, out[k], NULL);
+            dsp_cleanup(vt);
+        }
+        int same = 1;
+        for (int i = 0; i < 5 * VT_SAMPLE_RATE; i++) if (out[0][i] != out[1][i]) same = 0;
+        if (demo) CHECK(same); else CHECK(!same);
+    }
+    {   /* Breath, Attack and Release are still yours under the tour */
+        for (int k = 0; k < 2; k++) {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "engine", "VoiceFX");
+            dsp_set_param(vt, "vf_release", k ? "0.9" : "0.0");
+            dsp_set_param(vt, "demo", "On");
+            vm_sine_t none = { 440.0, 0.0 };
+            long pos = 0;
+            vm_run(vt, vm_sine, &none, 5.0, &pos, out[k], NULL);
+            dsp_cleanup(vt);
+        }
+        int differs = 0;
+        for (int i = 0; i < 5 * VT_SAMPLE_RATE; i++) if (out[0][i] != out[1][i]) differs = 1;
+        CHECK(differs);
+    }
+    /* The phases are audible: bars 1-2 are the raw synth (bright, Mix/Drv low), bars 3-4 are talking formants */
+    {
+        static float l[10 * VT_SAMPLE_RATE];
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "engine", "VoiceFX");
+        dsp_set_param(vt, "demo", "On");
+        vm_sine_t none = { 440.0, 0.0 };
+        long pos = 0;
+        vm_run(vt, vm_sine, &none, 8.0, &pos, l, NULL);                                  /* bars 1-4 at 120 bpm */
+        double raw = 0, talk = 0, raw_t = 0, talk_t = 0;
+        for (int i = 0; i < 4 * VT_SAMPLE_RATE; i++) { raw += (double)l[i] * l[i]; }
+        for (int i = 4 * VT_SAMPLE_RATE + 22050; i < 8 * VT_SAMPLE_RATE; i++) { talk += (double)l[i] * l[i]; }
+        raw_t = band_energy(l, 4 * VT_SAMPLE_RATE, 5000.0, 10000.0) / (raw + 1e-30);
+        talk_t = band_energy(l + 4 * VT_SAMPLE_RATE + 22050, 4 * VT_SAMPLE_RATE - 22050, 5000.0, 10000.0) / (talk + 1e-30);
+        if (!(raw_t > 1.25 * talk_t)) printf("  tour phases: top-end share bars 1-2 %.3e, bars 3-4 %.3e\n", raw_t, talk_t);
+        CHECK(raw_t > 1.25 * talk_t);
+        dsp_cleanup(vt);
+    }
+    /* Safe under every preset and extreme knobs for a whole loop: finite, under the -6.1 dBFS ceiling, with drive and Q at the top */
+    {
+        static float blk[2 * 128];
+        double worst = 0;
+        int bad = 0, over = 0;
+        for (int p = 0; p < 7; p++) {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "engine", "VoiceFX");
+            if (p < 6) { char idx[8]; snprintf(idx, sizeof idx, "%d", p); dsp_set_param(vt, "vf_preset", idx); }
+            else for (int k = 0; k < 8; k++) dsp_set_param(vt, keys[k], "1");              /* everything wide open */
+            dsp_set_param(vt, "demo", "On");
+            for (int bn = 0; bn < 17 * VT_SAMPLE_RATE / 128; bn++) {
+                memset(blk, 0, sizeof blk);
+                dsp_process_block_f(vt, blk, 128);
+                for (int i = 0; i < 256; i++) {
+                    if (!isfinite(blk[i])) bad++;
+                    else { worst = fmax(worst, fabs(blk[i])); if (fabsf(blk[i]) > TINYVOICE_OUTPUT_HEADROOM) over++; }
+                }
+            }
+            dsp_cleanup(vt);
+        }
+        if (bad || over) printf("  tour: non-finite %d, over the ceiling %d (peak %.3f)\n", bad, over, worst);
+        CHECK(bad == 0 && over == 0);
+        CHECK(worst > 0.1);
     }
 }
 

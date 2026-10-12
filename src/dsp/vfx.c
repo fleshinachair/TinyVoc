@@ -122,16 +122,23 @@ void vfx_set(vfx_t *v, float vowel, float tract, float peak, float choir,
 
     /* Vowel: a position on the A E I O U line; centres interpolate in log
      * frequency, weights linearly. */
-    const float pos = v->vowel * 4.0f;
-    int i0 = (int)pos;
-    if (i0 > 3) i0 = 3;
-    const float fr = pos - (float)i0;
+    int i0, i1;
+    float fr;
+    if (v->ov_on) {                                           /* the tour: a straight glide between two vowels */
+        i0 = v->ov_a; i1 = v->ov_b; fr = v->ov_t;
+    } else {
+        const float pos = v->vowel * 4.0f;
+        i0 = (int)pos;
+        if (i0 > 3) i0 = 3;
+        i1 = i0 + 1;
+        fr = pos - (float)i0;
+    }
     const float scale = exp2f((v->tract - 0.5f) * 1.2f);      /* Tract: +-0.6 octave */
     const float qm = 0.4f * powf(6.25f, v->peak);             /* Peak: x0.4 .. x2.5, x1 at 0.5 */
     const float det = 0.07f * v->choir;
     for (int k2 = 0; k2 < VFX_FORMANTS; k2++) {
-        const float f_goal = scale * k_vowel_f[i0][k2] * powf(k_vowel_f[i0 + 1][k2] / k_vowel_f[i0][k2], fr);
-        const float w_goal = k_vowel_w[i0][k2] + (k_vowel_w[i0 + 1][k2] - k_vowel_w[i0][k2]) * fr;
+        const float f_goal = scale * k_vowel_f[i0][k2] * powf(k_vowel_f[i1][k2] / k_vowel_f[i0][k2], fr);
+        const float w_goal = k_vowel_w[i0][k2] + (k_vowel_w[i1][k2] - k_vowel_w[i0][k2]) * fr;
         v->f_hz[k2] += (f_goal - v->f_hz[k2]) * v->k_f;       /* the sweep never steps */
         v->f_w[k2] += (w_goal - v->f_w[k2]) * v->k_f;
         const float q = clampf(k_q[k2] * qm, 1.0f, 40.0f);
@@ -140,6 +147,16 @@ void vfx_set(vfx_t *v, float vowel, float tract, float peak, float choir,
     }
     verb_set(&v->tail, v->release);
 }
+
+void vfx_vowel_pair(vfx_t *v, int a, int b, float t)
+{
+    v->ov_on = 1;
+    v->ov_a = a < 0 ? 0 : (a > 4 ? 4 : a);
+    v->ov_b = b < 0 ? 0 : (b > 4 ? 4 : b);
+    v->ov_t = clampf(t, 0.0f, 1.0f);
+}
+
+void vfx_vowel_knob(vfx_t *v) { v->ov_on = 0; }
 
 void vfx_process(vfx_t *v, float in, float *out_l, float *out_r)
 {

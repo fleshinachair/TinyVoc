@@ -16,6 +16,7 @@
 #include "demo.h"
 #include "vfx.h"
 #include "groove.h"
+#include "tour.h"
 #include "presets.h"
 #include "vt_floor.h"
 #include "module_meta.h"   /* generated: chain_params / ui_hierarchy JSON */
@@ -1000,8 +1001,20 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
      * own Choir for the stereo chorus: nothing on the pages it hides can leave
      * it in a state its one page cannot show. */
     const int vf = mode == VT_MODE_VOICEFX;
+    /* Voice FX's effective knobs. They are the stored ones, except under the Showcase Tour (Demo On in Voice FX:
+     * Demo is the tour), when the ghost hands move Tract, Peak, Choir and Mix/Drv and pick the vowel along the
+     * phrase's bars. Only these effective values change: nothing is ever written to vt->p, so what you set
+     * is what you get back when the tour stops. */
+    float vfp[VT_PRESET_VALUES];
+    for (int k = 0; k < VT_PRESET_VALUES; k++) vfp[k] = vt->p[VT_P_VF_VOWEL + k];
+    const int tour_on = vf && vt->demo_active;                      /* Demo in Voice FX is the tour */
+    tour_t tour;
+    if (tour_on) {
+        tour_eval(groove_bar(&vt->groove), &tour);
+        vfp[1] = tour.tract; vfp[2] = tour.peak; vfp[3] = tour.choir; vfp[7] = tour.mix;
+    }
     groove_set_bpm(&vt->groove, vt->bpm);                           /* the audition loop follows the host tempo */
-    const float mix  = vf ? clampf(vt->p[VT_P_VF_MIX] / VFX_MIX_KNEE, 0.0f, 1.0f) : vt->p[VT_P_MIX];   /* Voice FX: wet/dry up to the knee, drive above */
+    const float mix  = vf ? clampf(vfp[7] / VFX_MIX_KNEE, 0.0f, 1.0f) : vt->p[VT_P_MIX];   /* Voice FX: wet/dry up to the knee, drive above */
     const float dry_g = mix >= 0.999f ? 0.0f : 1.0f - mix;          /* 100% wet: no dry at all */
     const float gain = vf ? 1.0f : powf(10.0f, vt->p[VT_P_GAIN] / 20.0f);
     const float sw_goal = mode == want_mode ? 1.0f : 0.0f;
@@ -1033,7 +1046,7 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
     /* Spread: two modulated taps (quadrature LFO) widen the wet signal. In
      * Robot, Spread pans the vocoder's odd/even bands instead. */
     const float spread = vt->p[VT_P_SPREAD];
-    const float ch_amt = has_bands(mode) ? 0.0f : (vf ? vt->p[VT_P_VF_CHOIR] : spread) * 0.7f;
+    const float ch_amt = has_bands(mode) ? 0.0f : (vf ? vfp[3] : spread) * 0.7f;
     const float ch_base = CHORUS_BASE_MS * 0.001f * sr, ch_depth = CHORUS_DEPTH_MS * 0.001f * sr;
     const float ch_inc = CHORUS_RATE_HZ / sr;
     const float k_ch = 1.0f - expf(-1.0f / (0.010f * sr));      /* 10 ms: the amount never steps */
@@ -1089,8 +1102,9 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
         daft_set_talker(&vt->nc, 1, 0.12f + 0.16f * c4, 0.10f + 0.20f * md, 0.35f * c2, 12.0f * c5);
         assign_carriers(vt, &vt->nc, held, vel);
     } else if (vf) {
-        vfx_set(&vt->vfx, vt->p[VT_P_VF_VOWEL], vt->p[VT_P_VF_TRACT], vt->p[VT_P_VF_PEAK], vt->p[VT_P_VF_CHOIR],
-                vt->p[VT_P_VF_BREATH], vt->p[VT_P_VF_ATTACK], vt->p[VT_P_VF_RELEASE], vt->p[VT_P_VF_MIX]);
+        if (tour_on) vfx_vowel_pair(&vt->vfx, tour.v0, tour.v1, tour.vt);
+        else vfx_vowel_knob(&vt->vfx);
+        vfx_set(&vt->vfx, vfp[0], vfp[1], vfp[2], vfp[3], vfp[4], vfp[5], vfp[6], vfp[7]);
     } else if (is_vox(mode)) {
         if (mode == VT_MODE_DALEK) vox_set_dalek(&vt->vox, c1, c2, md, c4, c5);
         else if (mode == VT_MODE_HARMONY) {

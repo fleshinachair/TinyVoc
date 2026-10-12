@@ -189,8 +189,10 @@ int main(int argc, char **argv)
         CHECK(nonzero);
         CHECK(ms < 2.0);
     }
-    /* Voice FX audition: Demo On plays the funk groove through each of the six presets with nothing routed in
-     * (silence on the input). Each must be audible, rhythmic (hits and gaps), under the -6.1 dBFS ceiling and cheap. */
+    /* Voice FX audition: Demo On plays the funk phrase through each of the six presets with nothing routed in
+     * (silence on the input). Demo is the Showcase Tour, which moves Vowel, Tract, Peak, Choir and Mix/Drv, so the
+     * presets differ here only in Breath, Attack and Release. Each must be audible, rhythmic (hits and gaps), under
+     * the -6.1 dBFS ceiling and cheap. Then the tour over a whole 16 s loop, with the stored knobs untouched. */
     {
         api->set_param(inst, "freeze", "Off");                             /* a looping take (the scenarios above) would fill the groove's gaps: Freeze sits after the input */
         api->set_param(inst, "engine", "VoiceFX");
@@ -204,12 +206,12 @@ int main(int argc, char **argv)
             char name[40] = "?";
             api->get_param(inst, "vf_preset_name", name, sizeof name);
             static int16_t sb[2 * 128];
-            static double win[200];
+            static double win[400];
             int nw = 0, peak = 0;
             double acc = 0;
             struct timespec t0, t1;
             clock_gettime(CLOCK_MONOTONIC, &t0);
-            for (int b = 0; b < 1100; b++) {                               /* ~3.2 s of the 4 s loop, after 0.4 s to settle */
+            for (int b = 0; b < 1100; b++) {                               /* ~2.8 s of the phrase, after 0.4 s to settle */
                 memset(sb, 0, sizeof sb);
                 api->process_block(inst, sb, 128);
                 if (b < 140) continue;
@@ -218,7 +220,7 @@ int main(int argc, char **argv)
                     if (abs(v) > peak) peak = abs(v);
                     acc += (double)v * v;
                 }
-                if (((b - 140) & 15) == 15 && nw < 200) { win[nw++] = sqrt(acc / (16.0 * 128.0)) / 32768.0; acc = 0; }   /* ~46 ms windows */
+                if (((b - 140) & 7) == 7 && nw < 400) { win[nw++] = sqrt(acc / (8.0 * 128.0)) / 32768.0; acc = 0; }   /* ~23 ms windows */
             }
             clock_gettime(CLOCK_MONOTONIC, &t1);
             const double ms = ((t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) / 1e6) / 1100.0;
@@ -230,6 +232,41 @@ int main(int argc, char **argv)
             CHECK(hi > 4.0 * lo);                                          /* a groove: hits and gaps */
             CHECK(peak <= 16236);                                          /* TINYVOICE_OUTPUT_HEADROOM x 32768 */
             CHECK(ms < 2.0);
+        }
+        /* The Showcase Tour: a whole 8-bar loop (16 s at 120 bpm), the ghost hands moving Vowel, Tract, Peak, Choir and Mix/Drv.
+         * Audible in every bar, under the ceiling, cheap, and the stored knobs come out as they went in. */
+        {
+            char before[5][16], after[16];
+            static const char *const kn[5] = { "vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_mix" };
+            api->set_param(inst, "vf_preset", "5");
+            for (int k = 0; k < 5; k++) { before[k][0] = 0; api->get_param(inst, kn[k], before[k], sizeof before[k]); }
+            static int16_t sb[2 * 128];
+            double bar_acc[8] = { 0 };
+            long bar_n[8] = { 0 };
+            int peak = 0, blocks = 16 * 44100 / 128;
+            struct timespec t0, t1;
+            clock_gettime(CLOCK_MONOTONIC, &t0);
+            for (int b = 0; b < blocks; b++) {
+                memset(sb, 0, sizeof sb);
+                api->process_block(inst, sb, 128);
+                const int bar = (int)((double)b * 128.0 / (2.0 * 44100.0)) & 7;
+                for (int i = 0; i < 128; i++) { const int v = sb[2 * i]; if (abs(v) > peak) peak = abs(v); bar_acc[bar] += (double)v * v; }
+                bar_n[bar] += 128;
+            }
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            const double ms = ((t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) / 1e6) / (double)blocks;
+            printf("  tour, bar by bar (rms dBFS):");
+            int quiet_bar = 0;
+            for (int k = 0; k < 8; k++) {
+                const double r = sqrt(bar_acc[k] / (double)(bar_n[k] ? bar_n[k] : 1)) / 32768.0;
+                printf(" %.1f", 20.0 * log10(r + 1e-9));
+                if (r < 0.003) quiet_bar = 1;
+            }
+            printf("   peak %.1f dBFS, %.3f ms/block\n", 20.0 * log10(peak / 32768.0 + 1e-9), ms);
+            CHECK(!quiet_bar);
+            CHECK(peak <= 16236);
+            CHECK(ms < 2.0);
+            for (int k = 0; k < 5; k++) { after[0] = 0; api->get_param(inst, kn[k], after, sizeof after); CHECK(strcmp(before[k], after) == 0); }   /* the knobs are untouched */
         }
     }
     api->set_param(inst, "engine", "Vocoder");

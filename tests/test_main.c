@@ -4475,7 +4475,9 @@ int main(void)
     RUN(test_voicefx_numeric_safety);
     RUN(test_voicefx_presets);
     RUN(test_groove);
+    RUN(test_tour);
     RUN(test_voicefx_audition);
+    RUN(test_voicefx_tour);
     RUN(test_midi_agnostic_modes);
     RUN(test_latency_budget);
     RUN(test_headroom);
