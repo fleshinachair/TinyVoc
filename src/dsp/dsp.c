@@ -130,6 +130,9 @@ static const vt_param_def k_params[VT_P_COUNT] = {
     [VT_P_DEMO]      = TOGGLE_DEF("demo"),
 };
 
+/* The five contextual knobs, in the order of the macro names (k_macro_names). */
+static const int k_macro_ids[VT_MACROS] = { VT_P_CHAR1, VT_P_CHAR2, VT_P_MOD, VT_P_CHAR4, VT_P_CHAR5 };
+
 /* Gate option <-> manual level in dB (option 0 is Auto). */
 static float gate_db_of(int opt) { return (float)(VT_GATE_MIN_DB + VT_GATE_STEP_DB * (opt - 1)); }
 static int gate_opt_of(float db)                                    /* nearest 3 dB step */
@@ -205,6 +208,11 @@ struct vt {
     int      midi_log[6][3];    /* last note-ons: status, note, source (diag) */
     int      midi_log_n;
     int   demo_active, demo_saved_mode;
+    /* The five contextual knobs (char1, char2, mod, char4, char5) belong to a mode: HardTune's Amount is not
+     * Harmony's Lead. p[] holds the running mode's five (so every engine reads them as before); the others wait
+     * here, and a mode change swaps them (macros_follow_mode). */
+    float macro_store[VT_MODE_COUNT][VT_MACROS];
+    int   macro_mode;           /* the mode whose five are in p[] now */
     int   demo_pinned;            /* Mode turned during Demo: the tour stops on it */
     int   restoring;              /* inside apply_state: Beauty is set whatever the mode */
     float bpm;
@@ -253,6 +261,9 @@ vt_t *dsp_init(int sample_rate)
 
     vt->sample_rate = sample_rate > 0 ? sample_rate : VT_SAMPLE_RATE;
     for (int i = 0; i < VT_P_COUNT; i++) vt->p[i] = k_params[i].def;
+    for (int m = 0; m < VT_MODE_COUNT; m++)
+        for (int k = 0; k < VT_MACROS; k++) vt->macro_store[m][k] = k_params[k_macro_ids[k]].def;
+    vt->macro_mode = (int)vt->p[VT_P_MODE];
     for (int i = 0; i < VT_MAX_VOICES; i++) vt->voices[i].note = -1;
     cher_init(&vt->cher, (float)vt->sample_rate);
     daft_init(&vt->daft, (float)vt->sample_rate);
@@ -469,6 +480,33 @@ static int format_chain_params(const vt_t *vt, char *buf, int buf_len)
     return n;
 }
 
+/* A mode change brings that mode's own five knobs: the running mode's are filed away, the new mode's (its defaults
+ * the first time) are loaded into p[]. Called wherever the mode can change: the Mode knob, a state restore, and at
+ * the start of an audio block (the Demo tour steps the mode itself). */
+static void macros_follow_mode(vt_t *vt)
+{
+    const int m = (int)vt->p[VT_P_MODE];
+    if (m == vt->macro_mode || m < 0 || m >= VT_MODE_COUNT) return;
+    if (vt->macro_mode >= 0 && vt->macro_mode < VT_MODE_COUNT)
+        for (int k = 0; k < VT_MACROS; k++) vt->macro_store[vt->macro_mode][k] = vt->p[k_macro_ids[k]];
+    for (int k = 0; k < VT_MACROS; k++) vt->p[k_macro_ids[k]] = vt->macro_store[m][k];
+    vt->macro_mode = m;
+}
+
+/* "HardTune.char1": one mode's own knob, as a saved state names the ones that are not the running mode's. */
+static int macro_key(const char *key, int *mode, int *which)
+{
+    static const char *const names[VT_MACROS] = { "char1", "char2", "mod", "char4", "char5" };
+    const char *dot = strchr(key, '.');
+    if (!dot) return 0;
+    for (int m = 0; m < VT_MODE_COUNT; m++) {
+        const size_t n = strlen(k_mode_opts[m]);
+        if ((size_t)(dot - key) != n || strncmp(key, k_mode_opts[m], n) != 0) continue;
+        for (int k = 0; k < VT_MACROS; k++) if (strcmp(dot + 1, names[k]) == 0) { *mode = m; *which = k; return 1; }
+    }
+    return 0;
+}
+
 /* The knobs the Showcase Tour turns (Vowel, Tract, Peak, Choir, Mix/Drv), and the preset browser, which would
  * load values over it: a write to any of them while the tour runs is the player's hand. */
 static int tour_moves(int id)
@@ -512,6 +550,17 @@ int dsp_set_param(vt_t *vt, const char *key, const char *val)
         if (opt) vt->gate_mem = opt;
         return 0;
     }
+    {   /* a saved state also names the knobs of the modes that were not running ("Snap.char1") */
+        int mm, mk;
+        if (macro_key(key, &mm, &mk)) {
+            char *end;
+            const float f = strtof(val, &end);
+            if (end == val || !isfinite(f)) return -1;
+            const float v = clampf(f, k_params[k_macro_ids[mk]].min, k_params[k_macro_ids[mk]].max);
+            if (mm == vt->macro_mode) vt->p[k_macro_ids[mk]] = v; else vt->macro_store[mm][mk] = v;
+            return 0;
+        }
+    }
     int id = dsp_param_index(key);
     if (id < 0) return -1;
     const vt_param_def *d = &k_params[id];
@@ -539,14 +588,14 @@ int dsp_set_param(vt_t *vt, const char *key, const char *val)
         for (int i = 0; i < d->num_options; i++) {
             if (strcmp(d->options[i], val) == 0) {
                 vt->p[id] = (float)i;
-                if (id == VT_P_MODE && vt->demo_active) vt->demo_pinned = 1;   /* stop the tour here */
+                if (id == VT_P_MODE) { if (vt->demo_active) vt->demo_pinned = 1; macros_follow_mode(vt); }   /* stop the tour here */
                 return 0;
             }
         }
         for (int i = 0; i < d->num_options; i++) {                    /* the host's own spelling of an option (case aside) */
             if (ieq(d->options[i], val)) {
                 vt->p[id] = (float)i;
-                if (id == VT_P_MODE && vt->demo_active) vt->demo_pinned = 1;
+                if (id == VT_P_MODE) { if (vt->demo_active) vt->demo_pinned = 1; macros_follow_mode(vt); }
                 return 0;
             }
         }
@@ -556,7 +605,7 @@ int dsp_set_param(vt_t *vt, const char *key, const char *val)
         if (idx < 0) idx = 0;
         if (idx >= d->num_options) idx = d->num_options - 1;
         vt->p[id] = (float)idx;
-        if (id == VT_P_MODE && vt->demo_active) vt->demo_pinned = 1;
+        if (id == VT_P_MODE) { if (vt->demo_active) vt->demo_pinned = 1; macros_follow_mode(vt); }
         return 0;
     }
 
@@ -593,6 +642,18 @@ int dsp_get_param(vt_t *vt, const char *key, char *buf, int buf_len)
                   : snprintf(buf + n, (size_t)(buf_len - n), "%s\"%s\":%g", i ? "," : "", d->key, (double)vt->p[i]);
             if (w < 0) return -1;
             n += w;
+        }
+        /* the knobs of the other modes, only where they are not at their defaults (a set stays short) */
+        {
+            static const char *const names[VT_MACROS] = { "char1", "char2", "mod", "char4", "char5" };
+            for (int m = 0; m < VT_MODE_COUNT && n >= 0 && n < buf_len; m++) {
+                if (m == vt->macro_mode) continue;
+                for (int k = 0; k < VT_MACROS && n >= 0 && n < buf_len; k++) {
+                    const float v = vt->macro_store[m][k];
+                    if (fabsf(v - k_params[k_macro_ids[k]].def) < 1e-6f) continue;
+                    n += snprintf(buf + n, (size_t)(buf_len - n), ",\"%s.%s\":%g", k_mode_opts[m], names[k], (double)v);
+                }
+            }
         }
         if (n >= 0 && n < buf_len) n += snprintf(buf + n, (size_t)(buf_len - n), "}");
     } else if (strcmp(key, "diag") == 0) {
@@ -1007,6 +1068,7 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
         vt->demo_time += (double)frames / sr;
     }
 
+    macros_follow_mode(vt);                                          /* the tour (or its end) may have moved the mode: its own knobs come with it */
     /* A mode change (knob, state or Demo) renames char1/char2/mod: pulse
      * is_loading so the UI re-reads them. Not in the first second, when a set
      * is being restored (the host's restore waits while is_loading says "1"). */

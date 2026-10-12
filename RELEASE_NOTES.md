@@ -4,7 +4,7 @@ A vocal processor for Ableton Move, as a [Schwung](https://github.com/charlesves
 
 ## Vocoder
 
-Sing into the Move, play the pads, and turn your voice into a hard-tuned robot, a talkbox, a one-finger choir, a Dalek, a walkie-talkie or a frozen drone. **13 modes** in one list: the vocoder and carrier modes (Robot, Snap, Chords, Prism, Tape, Nightcall), the voice transformers (Scream, Dalek, HardTune, Harmony, Walkie), and Morph and Double. A home page of eight knobs (Mode, five contextual knobs named per mode, Mix, Level), a Pitch page and a More page.
+Sing into the Move, play the pads, and turn your voice into a hard-tuned robot, a talkbox, a one-finger choir, a Dalek, a walkie-talkie or a frozen drone. **13 modes** in one list: the vocoder and carrier modes (Robot, Snap, Chords, Prism, Tape, Nightcall), the voice transformers (Scream, Dalek, HardTune, Harmony, Walkie), and Morph and Double. A home page of eight knobs (Mode, five contextual knobs named per mode, Mix, Level), a Pitch page and a More page. **Every mode keeps its own five knob values**, saved with the set: max out HardTune, switch to Harmony, and Harmony is on its own.
 
 - **Hands-free Chord Latch:** play a chord once, take your hands off the pads and sing (Robot, Chords, Prism, Nightcall, Harmony).
 - **Freeze:** a 16 s punch-in looper before the engines, with bar-synced takes that start on the downbeat. A take can't be shorter than a 120 ms loop (an accidental tap is ignored).

@@ -64,6 +64,8 @@ One **Mode** knob steps through a single list: the vocoder and carrier modes fir
 
 ### The five contextual knobs change with the mode
 
+**Every mode keeps its own five.** Set HardTune's knobs to max, switch to Harmony, and Harmony is on its own values (its defaults, the first time); switch back and HardTune is exactly as you left it. They are saved with the set, mode by mode. The exception is the knobs marked \* below: those are the *same control* as one on another page (Retune, Beauty, Glide, Tone), so they are one value in every mode that has them.
+
 On the **Main** page, knobs 2–6 are renamed for the active mode. Some of them are *the same controls as elsewhere* (marked \*): the Retune knob on the Pitch page and the Retune knob here are one value.
 
 | Mode | 2 | 3 | 4 | 5 | 6 |

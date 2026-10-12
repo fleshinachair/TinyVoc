@@ -2310,6 +2310,180 @@ static void test_freeze_minimum(void)
     }
 }
 
+/* ------------------------------------------------ each mode keeps its own five knobs */
+
+/* Which of char4 / char5 are a mode's own (the rest stand for a param that is the same in every mode: Retune, Beauty,
+ * Glide, Tone). char1, char2 and mod are always a mode's own. */
+static int own_slot(int mode, int which)                 /* which: 3 = char4, 4 = char5 */
+{
+    switch (mode) {
+    case VT_MODE_PRISM: case VT_MODE_NIGHTCALL: case VT_MODE_SCREAM: case VT_MODE_DALEK:
+    case VT_MODE_HARMONY: case VT_MODE_WALKIE:   return 1;
+    case VT_MODE_HARDTUNE: return which == 4;             /* char4 is Glide there */
+    case VT_MODE_TAPE:     return which == 4;             /* char4 is Tone, char5 is Hiss */
+    default:               return 0;
+    }
+}
+
+static void test_mode_knobs(void)
+{
+    static const char *const ids[5] = { "char1", "char2", "mod", "char4", "char5" };
+    static const double dflt[5] = { 0.5, 0.5, 0.0, 0.5, 0.5 };
+    char b[32];
+    static float z[2 * 128];
+
+    /* The case that was reported: everything to max in HardTune, switch to Harmony, and it was all on max too */
+    {
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "mode", "HardTune");
+        for (int k = 0; k < 5; k++) dsp_set_param(vt, ids[k], "1");
+        dsp_set_param(vt, "mode", "Harmony");
+        for (int k = 0; k < 5; k++) {
+            CHECK(dsp_get_param(vt, ids[k], b, sizeof b) > 0);
+            if (fabs(atof(b) - dflt[k]) > 1e-6) printf("  Harmony %s = %s after HardTune was maxed (want %g)\n", ids[k], b, dflt[k]);
+            CHECK(fabs(atof(b) - dflt[k]) < 1e-6);                             /* Harmony's own, untouched: its defaults */
+        }
+        dsp_set_param(vt, "char1", "0.2");                                     /* and turning Harmony's does not move HardTune's */
+        dsp_set_param(vt, "mode", "HardTune");
+        CHECK(dsp_get_param(vt, "char1", b, sizeof b) > 0 && fabs(atof(b) - 1.0) < 1e-6);    /* Amount: still at max */
+        CHECK(dsp_get_param(vt, "char2", b, sizeof b) > 0 && fabs(atof(b) - 1.0) < 1e-6);
+        CHECK(dsp_get_param(vt, "mod", b, sizeof b) > 0 && fabs(atof(b) - 1.0) < 1e-6);
+        CHECK(dsp_get_param(vt, "char5", b, sizeof b) > 0 && fabs(atof(b) - 1.0) < 1e-6);    /* Sens */
+        CHECK(dsp_get_param(vt, "char4", b, sizeof b) > 0 && fabs(atof(b) - 1.0) < 1e-6);    /* Glide: the param itself, the same everywhere */
+        dsp_set_param(vt, "mode", "Harmony");
+        CHECK(dsp_get_param(vt, "char1", b, sizeof b) > 0 && fabs(atof(b) - 0.2) < 1e-6);    /* Lead: where it was left */
+        dsp_cleanup(vt);
+    }
+    /* Every mode: its own values come back after a tour of all the others, and no mode takes another's */
+    {
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        for (int m = 0; m < VT_MODE_COUNT; m++) {
+            char mi[8];
+            snprintf(mi, sizeof mi, "%d", m);
+            dsp_set_param(vt, "mode", mi);
+            for (int k = 0; k < 5; k++) {
+                if (k >= 3 && !own_slot(m, k)) continue;
+                char v[16];
+                snprintf(v, sizeof v, "%.2f", 0.05 + 0.07 * m + 0.01 * k);                      /* a different value for every mode and knob */
+                dsp_set_param(vt, ids[k], v);
+            }
+        }
+        for (int pass = 0; pass < 2; pass++)
+            for (int m = VT_MODE_COUNT - 1; m >= 0; m--) {                                       /* ... visited in another order, twice */
+                char mi[8];
+                snprintf(mi, sizeof mi, "%d", m);
+                dsp_set_param(vt, "mode", mi);
+                for (int k = 0; k < 5; k++) {
+                    if (k >= 3 && !own_slot(m, k)) continue;
+                    const double want = atof((snprintf(b, sizeof b, "%.2f", 0.05 + 0.07 * m + 0.01 * k), b));
+                    CHECK(dsp_get_param(vt, ids[k], b, sizeof b) > 0);
+                    if (fabs(atof(b) - want) > 1e-4) printf("  mode %d %s = %s, want %.2f\n", m, ids[k], b, want);
+                    CHECK(fabs(atof(b) - want) < 1e-4);
+                }
+            }
+        dsp_cleanup(vt);
+    }
+    /* A mode's first visit is at the defaults (Snap, Chords, Morph and Double share Retune and Beauty as before) */
+    {
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "mode", "Snap");
+        dsp_set_param(vt, "retune", "120");                                    /* a real param: the same in the modes that have it */
+        dsp_set_param(vt, "mode", "Chords");
+        CHECK(dsp_get_param(vt, "retune", b, sizeof b) > 0 && fabs(atof(b) - 120.0) < 1e-4);
+        CHECK(dsp_get_param(vt, "char4", b, sizeof b) > 0 && fabs(atof(b) - 120.0 / 500.0) < 1e-4);   /* char4 is Retune there: one value, two knobs */
+        dsp_cleanup(vt);
+    }
+    /* The knobs a mode shows are the ones the engine runs: Walkie's Peak at 0 and at 1 sound different, and switching away
+     * and back does not leave it on the other mode's setting */
+    {
+        double rms[2];
+        for (int k = 0; k < 2; k++) {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "mode", "Walkie");
+            dsp_set_param(vt, "char2", k ? "1" : "0");                          /* Drive */
+            dsp_set_param(vt, "mode", "Dalek");
+            dsp_set_param(vt, "char2", "0.5");
+            dsp_set_param(vt, "mode", "Walkie");
+            vm_tone_t tn = { 220.0, 0.2, 8 };
+            long pos = 0;
+            static float l[VT_SAMPLE_RATE];
+            vm_run(vt, vm_tone, &tn, 0.5, &pos, NULL, NULL);
+            const int n = vm_run(vt, vm_tone, &tn, 0.5, &pos, l, NULL);
+            rms[k] = rms_of(l, n);
+            dsp_cleanup(vt);
+        }
+        CHECK(fabs(20.0 * log10(rms[1] / rms[0])) > 0.05 || rms[0] != rms[1]);     /* Walkie's Drive is still Walkie's after a visit to Dalek */
+    }
+    /* Saved sets carry every mode's knobs: the running mode's as char1 .. char5, the others as "Mode.char1" where they
+     * are not at their defaults */
+    {
+        vt_t *a = dsp_init(VT_SAMPLE_RATE), *c = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(a, "mode", "HardTune");
+        dsp_set_param(a, "char1", "0.91"); dsp_set_param(a, "mod", "0.33");
+        dsp_set_param(a, "mode", "Scream");
+        dsp_set_param(a, "char2", "0.12"); dsp_set_param(a, "char4", "0.77");
+        dsp_set_param(a, "mode", "Harmony");                                  /* the running mode, with defaults */
+        static char st[3072], st2[3072];
+        CHECK(dsp_get_param(a, "state", st, sizeof st) > 0);
+        CHECK(strstr(st, "\"HardTune.char1\":0.91") && strstr(st, "\"HardTune.mod\":0.33") && strstr(st, "\"Scream.char2\":0.12") && strstr(st, "\"Scream.char4\":0.77"));
+        CHECK(strstr(st, "\"Snap.") == NULL && strstr(st, "\"Harmony.") == NULL);   /* defaults are not written; the running mode is char1 .. */
+        CHECK(dsp_set_param(c, "state", st) == 0);
+        CHECK(dsp_get_param(c, "state", st2, sizeof st2) > 0 && strcmp(st, st2) == 0);       /* a stable fixed point */
+        dsp_set_param(c, "mode", "HardTune");
+        CHECK(dsp_get_param(c, "char1", b, sizeof b) > 0 && fabs(atof(b) - 0.91) < 1e-6);
+        CHECK(dsp_get_param(c, "mod", b, sizeof b) > 0 && fabs(atof(b) - 0.33) < 1e-6);
+        dsp_set_param(c, "mode", "Scream");
+        CHECK(dsp_get_param(c, "char2", b, sizeof b) > 0 && fabs(atof(b) - 0.12) < 1e-6);
+        CHECK(dsp_get_param(c, "char4", b, sizeof b) > 0 && fabs(atof(b) - 0.77) < 1e-6);
+        dsp_set_param(c, "mode", "Harmony");
+        CHECK(dsp_get_param(c, "char1", b, sizeof b) > 0 && fabs(atof(b) - 0.5) < 1e-6);
+        /* a set saved before this (flat, one set of knobs): they land on the running mode, the others at their defaults */
+        vt_t *o = dsp_init(VT_SAMPLE_RATE);
+        CHECK(dsp_set_param(o, "state", "{\"mode\":\"Dalek\",\"char1\":0.7,\"char2\":0.2,\"mod\":0.4,\"char4\":0.6,\"char5\":0.1}") == 0);
+        CHECK(dsp_get_param(o, "char1", b, sizeof b) > 0 && fabs(atof(b) - 0.7) < 1e-6);
+        dsp_set_param(o, "mode", "Walkie");
+        CHECK(dsp_get_param(o, "char1", b, sizeof b) > 0 && fabs(atof(b) - 0.5) < 1e-6);
+        /* a running mode named in the extras is the running mode's own, and bad names or values are refused */
+        CHECK(dsp_set_param(o, "Walkie.char1", "0.25") == 0 && dsp_get_param(o, "char1", b, sizeof b) > 0 && fabs(atof(b) - 0.25) < 1e-6);
+        CHECK(dsp_set_param(o, "Snap.char1", "7") == 0);
+        dsp_set_param(o, "mode", "Snap");
+        CHECK(dsp_get_param(o, "char1", b, sizeof b) > 0 && fabs(atof(b) - 1.0) < 1e-6);        /* clamped */
+        CHECK(dsp_set_param(o, "Nope.char1", "0.2") == -1 && dsp_set_param(o, "Snap.char9", "0.2") == -1 && dsp_set_param(o, "Snap.char1", "x") == -1);
+        dsp_cleanup(a); dsp_cleanup(c); dsp_cleanup(o);
+    }
+    /* The Demo tour steps through the modes: each is on its own knobs, and the user's mode gets its own back after */
+    {
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_bpm(vt, 240.0f);                                               /* 4 bars = 4 s */
+        dsp_set_param(vt, "mode", "Robot");
+        dsp_set_param(vt, "char1", "0.91");
+        dsp_set_param(vt, "mode", "Snap");
+        dsp_set_param(vt, "char1", "0.12");
+        for (int i = 0; i < VT_SAMPLE_RATE / 128 + 2; i++) dsp_process_block_f(vt, z, 128);       /* past the first second */
+        dsp_set_param(vt, "demo", "On");
+        int saw_robot = 0, saw_snap = 0, saw_other = 0;
+        for (int bn = 0; bn < 14 * VT_SAMPLE_RATE / 128; bn++) {                                   /* ~14 s: through Robot, Snap, Chords, ... */
+            memset(z, 0, sizeof z);
+            dsp_process_block_f(vt, z, 128);
+            if (bn % 20) continue;
+            char md[16];
+            dsp_get_param(vt, "mode", md, sizeof md);
+            dsp_get_param(vt, "char1", b, sizeof b);
+            if (strcmp(md, "Robot") == 0) { saw_robot++; CHECK(fabs(atof(b) - 0.91) < 1e-6); }
+            else if (strcmp(md, "Snap") == 0) { saw_snap++; CHECK(fabs(atof(b) - 0.12) < 1e-6); }
+            else { saw_other++; CHECK(fabs(atof(b) - 0.5) < 1e-6); }                                  /* every other mode: its own, at the default */
+        }
+        CHECK(saw_robot > 3 && saw_snap > 3 && saw_other > 3);
+        dsp_set_param(vt, "demo", "Off");
+        for (int i = 0; i < 4; i++) dsp_process_block_f(vt, z, 128);
+        char md[16];
+        dsp_get_param(vt, "mode", md, sizeof md);
+        CHECK(strcmp(md, "Snap") == 0);                                                              /* the user's mode comes back ... */
+        CHECK(dsp_get_param(vt, "char1", b, sizeof b) > 0 && fabs(atof(b) - 0.12) < 1e-6);          /* ... with the user's own knobs */
+        dsp_cleanup(vt);
+    }
+}
+
 /* ------------------------------------------------ Voice FX presets */
 
 static void test_voicefx_presets(void)

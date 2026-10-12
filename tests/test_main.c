@@ -4502,6 +4502,7 @@ int main(void)
     RUN(test_vocoder_floor_and_release);
     RUN(test_walkie_tail);
     RUN(test_freeze_minimum);
+    RUN(test_mode_knobs);
     RUN(test_midi_agnostic_modes);
     RUN(test_latency_budget);
     RUN(test_headroom);

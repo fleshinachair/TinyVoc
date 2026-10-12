@@ -330,6 +330,24 @@ int main(int argc, char **argv)
         }
         api->set_param(inst, "freeze", "Off");
     }
+    /* Each mode keeps its own five contextual knobs: everything to max in HardTune, switch to Harmony, and Harmony is
+     * on its own (default) values; back in HardTune, the maxed values are still there. */
+    {
+        api->set_param(inst, "engine", "Vocoder");
+        api->set_param(inst, "demo", "Off");
+        static const char *const ck[5] = { "char1", "char2", "mod", "char4", "char5" };
+        api->set_param(inst, "mode", "HardTune");
+        for (int k = 0; k < 5; k++) api->set_param(inst, ck[k], "1");
+        api->set_param(inst, "mode", "Harmony");
+        int own = 1;
+        char kv[24];
+        for (int k = 0; k < 5; k++) { kv[0] = 0; api->get_param(inst, ck[k], kv, sizeof kv); if (fabs(atof(kv) - (k == 2 ? 0.0 : 0.5)) > 1e-6) own = 0; }
+        api->set_param(inst, "mode", "HardTune");
+        int back = 1;
+        for (int k = 0; k < 5; k++) { kv[0] = 0; api->get_param(inst, ck[k], kv, sizeof kv); if (fabs(atof(kv) - 1.0) > 1e-6) back = 0; }
+        printf("  HardTune maxed, then Harmony: Harmony on its own knobs %s; back in HardTune, still maxed %s\n", own ? "yes" : "NO", back ? "yes" : "NO");
+        CHECK(own && back);
+    }
     api->set_param(inst, "engine", "Vocoder");
     api->set_param(inst, "demo", "Off");
     api->set_param(inst, "freeze", "Off");
