@@ -76,6 +76,8 @@ typedef struct {
     float wk_rx, k_wk_rx;             /* receiver: channel gain (0 between phrases) */
     float wk_dc_x, wk_dc_y, wk_lp1[2];
     float wk_env, wk_tau;             /* squelch burst envelope and its decay time, samples */
+    float wk_n3[2], wk_nlo;           /* the burst's noise: held under the handset's 3 kHz, then split at 1.8 kHz (the top decays faster) */
+    float k_wk_3k, k_wk_lo;
     float wk_since;                   /* samples since the last edge */
     int   wk_open;
     unsigned rng;

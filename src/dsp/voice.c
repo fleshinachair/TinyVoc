@@ -15,6 +15,13 @@
 #define WK_HP_HZ        350.0f
 #define WK_LP_HZ        3000.0f
 #define WK_COMP_TARGET  0.12f    /* the mic compressor's mean |x|: every phrase arrives slammed */
+/* The receiver's squelch. It is noise inside the handset's band (nothing above ~3 kHz: a cymbal-like wash up there
+ * was what rang on after speech), a short "kssh" on close, and its top half dies three times as fast as its body. */
+#define WK_SQ_OPEN_SEC  0.025f
+#define WK_SQ_CLOSE_SEC 0.055f
+#define WK_SQ_LP_HZ     3000.0f
+#define WK_SQ_SPLIT_HZ  1800.0f
+#define WK_SQ_TOP       0.6f     /* the top half's level against the body's, before it decays faster */
 
 static inline float clampf(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
 static inline float flush(float x) { return fabsf(x) < 1e-15f ? 0.0f : x; }
@@ -96,6 +103,8 @@ void vox_init(vox_t *v, float sr)
     v->k_wk_g   = 1.0f - expf(-1.0f / (0.005f * sr));
     v->wk_rx = 1.0f;
     v->k_wk_rx  = 1.0f - expf(-1.0f / (0.004f * sr));
+    v->k_wk_3k  = 1.0f - expf(-2.0f * PI_F * WK_SQ_LP_HZ / sr);
+    v->k_wk_lo  = 1.0f - expf(-2.0f * PI_F * WK_SQ_SPLIT_HZ / sr);
     v->wk_tau = 0.03f * sr;
     v->wk_since = 1e9f;          /* the first edge counts */
     v->wk_open = 1;              /* the voice gate starts open: no burst at load */
@@ -277,7 +286,7 @@ static void walkie(vox_t *v, float in, int open, float *out)
         v->wk_open = open;
         if (v->wk_since > 0.12f * v->sr) {
             v->wk_env = open ? 0.6f : 1.0f;
-            v->wk_tau = (open ? 0.025f : 0.12f) * v->sr;
+            v->wk_tau = (open ? WK_SQ_OPEN_SEC : WK_SQ_CLOSE_SEC) * v->sr;
             v->wk_since = 0.0f;
         }
     }
@@ -314,17 +323,26 @@ static void walkie(vox_t *v, float in, int open, float *out)
     v->wk_lp1[0] = flush(v->wk_lp1[0]); v->wk_lp1[1] = flush(v->wk_lp1[1]);
     x = v->wk_lp1[1] * 1.4f;
 
-    float noise = 0.0f;
+    float env = 0.0f;
     if (v->wk_env > 1e-4f) {
         v->wk_env *= expf(-1.0f / v->wk_tau);
-        noise += v->wk_squelch * v->wk_env * rnd(v);
+        env = v->wk_env;
     } else {
         v->wk_env = 0.0f;
     }
-    if (v->wk_rx > 1e-4f) noise += v->wk_rx * v->wk_static * rnd(v);
+    /* One band-limited noise feeds both the steady hiss and the burst (they are the same channel): a 2.2 kHz band,
+     * then held under 3 kHz by two poles. The burst splits it at 1.8 kHz: the body follows the envelope, the top
+     * follows its cube, so the sizzle is gone in a few tens of milliseconds while the "kssh" is still there. */
+    const float w = (env > 0.0f || v->wk_rx > 1e-4f) ? rnd(v) : 0.0f;
     float nb, nh;
-    noise = svf_tick(&v->wk_nz, noise, &nb, &nh);
-    noise = nb * v->wk_nz.k * 1.6f;                                 /* band-limited hiss, unity at 2.2 kHz */
+    svf_tick(&v->wk_nz, w, &nb, &nh);
+    float bpn = nb * v->wk_nz.k * 1.6f;                             /* band-limited, unity at 2.2 kHz */
+    v->wk_n3[0] = flush(v->wk_n3[0] + (bpn - v->wk_n3[0]) * v->k_wk_3k);
+    v->wk_n3[1] = flush(v->wk_n3[1] + (v->wk_n3[0] - v->wk_n3[1]) * v->k_wk_3k);
+    bpn = v->wk_n3[1];
+    v->wk_nlo = flush(v->wk_nlo + (bpn - v->wk_nlo) * v->k_wk_lo);
+    const float top = bpn - v->wk_nlo;
+    const float noise = v->wk_rx * v->wk_static * bpn + v->wk_squelch * (env * v->wk_nlo + env * env * env * WK_SQ_TOP * top) * 2.0f;
     *out = (v->wk_rx * x + noise) * WK_TRIM;
 }
 

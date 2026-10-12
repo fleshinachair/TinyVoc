@@ -49,6 +49,18 @@
 #define SIB_RATIO_LO  0.40f
 #define AUTO_GATE_CAP 0.003f      /* -50 dBFS: highest threshold the adaptive gate will use */
 
+/* The analysis floor gate: when the raw input level (peak-equivalent, as the Gate knob reads it) drops below
+ * AN_FLOOR_CLOSE every band envelope is clamped to exactly 0, and it opens again only above AN_FLOOR_OPEN (3 dB of
+ * hysteresis), so a noise floor hovering at the line cannot flutter the followers. A manual Gate set lower than the
+ * floor wins (its owner asked to hear quieter than that). */
+#define AN_FLOOR_CLOSE 0.00398f   /* -48 dBFS */
+#define AN_FLOOR_OPEN  0.00562f   /* -45 dBFS */
+/* Bands whose synthesis centre is above this release faster (the follower's tail was what rang on after speech). */
+#define HI_BAND_HZ     3500.0f
+#define HI_ENV_RELEASE 0.005f
+#define DC_BLOCK_HZ    15.0f      /* the carrier's DC blocker */
+#define RETRIGGER_SEC  0.001f     /* a re-triggered voice: 0.5 ms fade out, 0.5 ms fade in */
+
 /* Flush tiny values so decaying smoothers never enter the denormal range. */
 static inline float flush(float x) { return fabsf(x) < 1e-15f ? 0.0f : x; }
 
@@ -114,6 +126,7 @@ static void design_bank(daft_t *d)
         float fs = d->centre[i] * fratio;
         if (fs > 0.45f * d->sr) fs = 0.45f * d->sr;
         d->bq_sy[i] = design_bandpass(fs, 0.644f * q0 * qscale, d->sr);
+        d->k_rel[i] = fs > HI_BAND_HZ ? d->k_env_r_hi : d->k_env_r;       /* the high synthesis bands let go faster */
     }
     d->last_width = d->width;
     d->last_formant = d->formant;
@@ -136,6 +149,10 @@ void daft_init(daft_t *d, float sr)
     d->gate_open = 1;
     d->rng = 0x1234567u;
     d->k_env_a = coef_1pole(ENV_ATTACK, sr);   d->k_env_r = coef_1pole(ENV_RELEASE, sr);
+    d->k_env_r_hi = coef_1pole(HI_ENV_RELEASE, sr);
+    d->k_rt = 1.0f / (0.5f * RETRIGGER_SEC * sr);          /* each half of a re-trigger takes 0.5 ms */
+    d->dc_r = 1.0f - 2.0f * PI_F * DC_BLOCK_HZ / sr;
+    d->an_open = 1;
     d->k_hf_a  = coef_1pole(HF_ATTACK, sr);    d->k_hf_r  = coef_1pole(HF_RELEASE, sr);
     d->k_lvl_a = coef_1pole(LVL_ATTACK, sr);   d->k_lvl_r = coef_1pole(LVL_RELEASE, sr);
     d->k_amp_a = coef_1pole(AMP_ATTACK, sr);   d->k_amp_r = coef_1pole(AMP_RELEASE, sr);
@@ -236,12 +253,24 @@ void daft_set_voice(daft_t *d, int slot, int note, int velocity)
     daft_voice *v = &d->v[slot];
     if (note >= 0) {
         float tlf = log2f(daft_midi_hz(note));
+        int retrigger = 0;
         if (!v->gate && v->amp < 1e-3f) {                     /* fresh voice: no glide from a stale pitch */
-            v->lf = tlf;
-            v->ph[0] = v->ph[1] = 0.0f;
+            v->lf = tlf;                                      /* the oscillator phases are NOT reset: they free-run across note-ons */
+            v->rt = 0;
+        } else if (note != v->note && d->glide_a >= 1.0f) {
+            retrigger = 1;                                    /* a sounding voice given another note, with no glide to soften it */
         }
-        v->note = note;
-        v->target_lf = tlf;
+        if (retrigger) {
+            /* Not a pitch jump: fade out (0.5 ms), take the new note at the bottom, fade in (0.5 ms). A new note
+             * that lands mid-fade starts from where the gain is now. */
+            v->pend_note = note;
+            v->pend_lf = tlf;
+            if (v->rt == 0) { v->rt = 1; v->rt_pos = 0.0f; }
+            else if (v->rt == 2 && v->note != note) { v->rt = 1; v->rt_pos = 1.0f - v->rt_pos; }
+        } else if (v->rt == 0) {
+            v->note = note;
+            v->target_lf = tlf;
+        }
         v->amp_target = (float)velocity * (1.0f / 127.0f);
         v->gate = 1;
     } else {
@@ -298,15 +327,34 @@ static float carrier(daft_t *d)
 
         v->lf += (v->target_lf - v->lf) * d->glide_a;
         v->amp += (v->amp_target - v->amp) * (v->amp_target > v->amp ? a_att : a_rel);
+        float va = v->amp;
+        if (v->rt) {                                          /* a re-trigger's dip: raised-cosine out, new note, raised-cosine in */
+            v->rt_pos += d->k_rt;
+            if (v->rt == 1) {
+                if (v->rt_pos >= 1.0f) {
+                    v->note = v->pend_note;
+                    v->lf = v->target_lf = v->pend_lf;
+                    v->rt = 2;
+                    v->rt_pos = 0.0f;
+                    va = 0.0f;
+                } else {
+                    va *= 0.5f * (1.0f + cosf(PI_F * v->rt_pos));
+                }
+            } else if (v->rt_pos >= 1.0f) {
+                v->rt = 0;
+            } else {
+                va *= 0.5f * (1.0f - cosf(PI_F * v->rt_pos));
+            }
+        }
 
         float f = exp2f(v->lf);
         float dt1 = f * d->detune_ratio / d->sr, dt2 = f / d->detune_ratio / d->sr;
         if (dt1 > 0.45f) dt1 = 0.45f;
         if (dt2 > 0.45f) dt2 = 0.45f;
-        sum += v->amp * (osc(&v->ph[0], dt1, d->pulse, width) + osc(&v->ph[1], dt2, d->pulse, width));
-        amp_sum += v->amp;
+        sum += va * (osc(&v->ph[0], dt1, d->pulse, width) + osc(&v->ph[1], dt2, d->pulse, width));
+        amp_sum += va;
         if (d->beauty > 0.0f) {                              /* Beauty: sub-octave warmth, -10 dB at full */
-            sum += v->amp * 0.37f * d->beauty * sinf(2.0f * PI_F * v->ph_sub);
+            sum += va * 0.37f * d->beauty * sinf(2.0f * PI_F * v->ph_sub);
             v->ph_sub += 0.5f * f / d->sr;
             v->ph_sub -= floorf(v->ph_sub);
         }
@@ -321,7 +369,12 @@ static float carrier(daft_t *d)
     /* Beauty: blend toward an 11 kHz low-pass (the saws' fizz) */
     d->car_lp = flush(d->car_lp + (sum - d->car_lp) * d->k_car_lp);
     sum += d->beauty * (d->car_lp - sum);
-    return sum * CARRIER_GAIN;
+    /* A 15 Hz DC blocker on the carrier (y = x - x1 + R y1): a pulse's duty, the noise and the sub-octave leave a
+     * little offset, and a note that starts or stops would step it. */
+    const float dc = sum - d->dc_x + d->dc_r * d->dc_y;
+    d->dc_x = sum;
+    d->dc_y = flush(dc);
+    return dc * CARRIER_GAIN;
 }
 
 /* ---------------------------------------------------------- talker EQ */
@@ -393,7 +446,7 @@ float daft_carrier_sample(daft_t *d) { return carrier(d); }
 
 void daft_process_lr(daft_t *d, float mod, float *out_l, float *out_r)
 {
-    const float a_att = d->k_env_a, a_rel = d->k_env_r;
+    const float a_att = d->k_env_a;
     const float raw = mod + TINY;
 
     /* Gate on the RAW input level, 3 dB hysteresis. It runs before the AGC so
@@ -414,6 +467,14 @@ void daft_process_lr(daft_t *d, float mod, float *out_l, float *out_r)
         if (d->gate_open && d->lvl_env < thr * 0.707f) d->gate_open = 0;
         else if (!d->gate_open && d->lvl_env > thr && d->voice_present) d->gate_open = 1;
         if (!d->voice_present) d->gate_open = 0;                   /* the caller's gate (Auto) */
+        /* The analysis floor: below -48 dBFS the band envelopes are held at exactly 0 until the level comes back
+         * above -45 dBFS. (A manual Gate lower than that moves the floor down with it.) */
+        {
+            const float f_close = d->auto_mode ? AN_FLOOR_CLOSE : fminf(AN_FLOOR_CLOSE, d->gate_thr);
+            const float f_open  = d->auto_mode ? AN_FLOOR_OPEN  : fminf(AN_FLOOR_OPEN, d->gate_thr * 1.41f);
+            if (d->an_open && d->lvl_env < f_close) d->an_open = 0;
+            else if (!d->an_open && d->lvl_env > f_open) d->an_open = 1;
+        }
         d->gate_gain = flush(d->gate_gain + ((d->gate_open ? 1.0f : 0.0f) - d->gate_gain) * d->k_gate);
         if (!d->gate_open && d->gate_gain < 1e-4f) d->gate_gain = 0.0f;   /* fully shut: exact zero */
     }
@@ -446,7 +507,7 @@ void daft_process_lr(daft_t *d, float mod, float *out_l, float *out_r)
         float y = bq_bandpass(&d->bq[i], &d->an[i][0], x);
         y = bq_bandpass(&d->bq[i], &d->an[i][1], y);
         float a = fabsf(y) * (PI_F * 0.5f);
-        d->env[i] = flush(d->env[i] + (a - d->env[i]) * (a > d->env[i] ? a_att : a_rel));
+        d->env[i] = d->an_open ? flush(d->env[i] + (a - d->env[i]) * (a > d->env[i] ? a_att : d->k_rel[i])) : 0.0f;
         total += d->env[i];
     }
 
@@ -457,7 +518,7 @@ void daft_process_lr(daft_t *d, float mod, float *out_l, float *out_r)
         float h = bq_highpass(&d->hp[0], &d->hps[0], x);
         h = bq_highpass(&d->hp[1], &d->hps[1], h);
         float a = fabsf(h) * (PI_F * 0.5f);
-        d->hf_env = flush(d->hf_env + (a - d->hf_env) * (a > d->hf_env ? d->k_hf_a : d->k_hf_r));
+        d->hf_env = d->an_open ? flush(d->hf_env + (a - d->hf_env) * (a > d->hf_env ? d->k_hf_a : d->k_hf_r)) : 0.0f;
 
         float e = total + d->hf_env;
         d->speech_env = flush(d->speech_env + (e - d->speech_env) * (e > d->speech_env ? d->k_sp_a : d->k_sp_r));
@@ -471,6 +532,7 @@ void daft_process_lr(daft_t *d, float mod, float *out_l, float *out_r)
         float level = d->hf_env / (SIB_REL * d->speech_env + 1e-6f);
         if (level > 1.0f) level = 1.0f;
         d->sib = flush(d->sib + (amount * level - d->sib) * d->k_sib);
+        if (!d->gate_open || !d->an_open) d->sib = 0.0f;           /* the consonant noise is muted the instant the gate shuts */
     }
 
     /* Carrier + consonant noise. */

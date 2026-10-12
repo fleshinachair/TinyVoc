@@ -10,6 +10,7 @@
 #include "presets.h"
 #include "groove.h"
 #include "tour.h"
+#include "daft.h"
 
 #define ALL_MODES_N 13
 static const char *const k_all_modes[ALL_MODES_N] = {
@@ -1779,6 +1780,256 @@ static void test_voicefx_tour(void)
         CHECK(bad == 0 && over == 0);
         CHECK(worst > 0.1);
     }
+}
+
+/* ------------------------------------- Vocoder carrier, analysis floor, Walkie tail, Freeze minimum */
+
+static void carrier_setup(daft_t *d, int pulse, float glide_ms)
+{
+    daft_init(d, VT_SAMPLE_RATE);
+    daft_set_params(d, pulse, 0.0f, glide_ms, 0.5f, 0.0f, 1.0f, 0.0f, -60.0f);
+    d->drone_enabled = 0;                                                  /* the keys alone */
+}
+
+static void test_vocoder_carrier(void)
+{
+    static daft_t d;
+
+    /* Free-running: a note-on never resets the oscillator's phase to 0 (the phase is wherever it left off) */
+    {
+        carrier_setup(&d, 0, 0.0f);
+        daft_set_voice(&d, 0, 57, 100);
+        for (int i = 0; i < 6000; i++) daft_carrier_sample(&d);
+        daft_set_voice(&d, 0, -1, 0);
+        for (int i = 0; i < 40000; i++) daft_carrier_sample(&d);               /* the voice has faded to silence and sleeps */
+        const float ph0 = d.v[0].ph[0], inc = 220.0f / VT_SAMPLE_RATE;
+        CHECK(ph0 > 1e-3f && ph0 < 0.999f);                                    /* it stopped somewhere, not at 0 */
+        daft_set_voice(&d, 0, 57, 100);
+        daft_carrier_sample(&d);
+        float want = ph0 + inc;
+        want -= floorf(want);
+        const float diff = fabsf(d.v[0].ph[0] - want);
+        if (!(diff < 1e-4f || diff > 1.0f - 1e-4f)) printf("  carrier phase after note-on %.5f, want %.5f (continuing from %.5f)\n", d.v[0].ph[0], want, ph0);
+        CHECK(diff < 1e-4f || diff > 1.0f - 1e-4f);
+    }
+    /* A note given to a sounding voice with no glide fades out and back in over 1 ms instead of jumping: the output
+     * dips to nothing in the middle, the new pitch is taken at the bottom, and it is back at full level after */
+    for (int pulse = 0; pulse < 2; pulse++) {
+        carrier_setup(&d, pulse, 0.0f);
+        daft_set_voice(&d, 0, 57, 100);
+        for (int i = 0; i < 6000; i++) daft_carrier_sample(&d);
+        double before = 0;
+        for (int i = 0; i < 400; i++) before = fmax(before, fabs(daft_carrier_sample(&d)));
+        daft_set_voice(&d, 0, 62, 100);                                       /* the slot is stolen by another note */
+        double mid = 0, after = 0, early = 0;
+        for (int i = 0; i < 400; i++) {
+            const double x = fabs(daft_carrier_sample(&d));
+            if (i < 8) early = fmax(early, x);                                 /* the start of the fade out: still sounding */
+            if (i >= 20 && i <= 24) mid = fmax(mid, x);                        /* 0.5 ms in: the bottom */
+            if (i >= 200) after = fmax(after, x);                              /* well after: full level on the new pitch */
+        }
+        if (!(mid < 0.25 * before && after > 0.7 * before && early > 0.3 * before))
+            printf("  retrigger %s: level before %.3f, at the bottom %.3f, after %.3f, start %.3f\n", pulse ? "pulse" : "saw", before, mid, after, early);
+        CHECK(mid < 0.25 * before);
+        CHECK(after > 0.7 * before);
+        CHECK(early > 0.3 * before);
+        CHECK(d.v[0].note == 62 && d.v[0].rt == 0);                            /* the new note is the voice's, the fade is over */
+        CHECK(fabsf(d.v[0].lf - log2f(440.0f * exp2f((62.0f - 69.0f) / 12.0f))) < 1e-4f);
+    }
+    /* With a glide the pitch slides by itself: no dip */
+    {
+        carrier_setup(&d, 0, 50.0f);
+        daft_set_voice(&d, 0, 57, 100);
+        for (int i = 0; i < 12000; i++) daft_carrier_sample(&d);
+        double before = 0, low = 1e9;
+        for (int i = 0; i < 400; i++) before = fmax(before, fabs(daft_carrier_sample(&d)));
+        daft_set_voice(&d, 0, 62, 100);
+        for (int w = 0; w < 20; w++) {
+            double pk = 0;
+            for (int i = 0; i < 100; i++) pk = fmax(pk, fabs(daft_carrier_sample(&d)));
+            if (pk < low) low = pk;
+        }
+        CHECK(low > 0.5 * before);
+    }
+    /* A voice thrashed by a new note every few samples stays finite and bounded (a retrigger mid-fade starts from where the gain is) */
+    {
+        carrier_setup(&d, 1, 0.0f);
+        double pk = 0;
+        int bad = 0;
+        unsigned s = 9;
+        daft_set_voice(&d, 0, 60, 100);
+        for (int i = 0; i < 200000; i++) {
+            s = s * 1664525u + 1013904223u;
+            if ((s >> 20) % 37 == 0) daft_set_voice(&d, (int)((s >> 8) % 4), 40 + (int)((s >> 12) % 40), 60 + (int)((s >> 16) % 60));
+            const double x = daft_carrier_sample(&d);
+            if (!isfinite(x)) bad++;
+            pk = fmax(pk, fabs(x));
+        }
+        CHECK(bad == 0);
+        CHECK(pk < 12.0);
+    }
+    /* The 15 Hz DC blocker: an offset in its state decays with a time constant of about 10 ms, and the carrier has no DC */
+    {
+        carrier_setup(&d, 1, 0.0f);
+        d.dc_y = 0.5f;
+        daft_set_voice(&d, 0, 45, 100);
+        for (int i = 0; i < 2500; i++) daft_carrier_sample(&d);                /* 5 time constants */
+        daft_t e;
+        daft_init(&e, VT_SAMPLE_RATE);
+        e.drone_enabled = 0;
+        e.dc_y = 0.5f; e.dc_x = 0.0f;
+        for (int i = 0; i < 2500; i++) daft_carrier_sample(&e);                /* silent: only the filter's own state moves */
+        CHECK(fabsf(e.dc_y) < 0.5f * 0.01f);                                   /* e^-5.3 */
+        CHECK(fabsf(e.dc_r - (1.0f - 2.0f * 3.14159265f * 15.0f / VT_SAMPLE_RATE)) < 1e-6f);
+        carrier_setup(&d, 1, 0.0f);
+        d.talker = 1; d.duty = 0.12f; d.rasp = 0.1f;
+        daft_set_voice(&d, 0, 45, 100);
+        for (int i = 0; i < 6000; i++) daft_carrier_sample(&d);
+        double sum = 0, ss = 0;
+        for (int i = 0; i < VT_SAMPLE_RATE; i++) { const double x = daft_carrier_sample(&d); sum += x; ss += x * x; }
+        CHECK(fabs(sum / VT_SAMPLE_RATE) < 0.01 * sqrt(ss / VT_SAMPLE_RATE));
+    }
+}
+
+/* The analysis floor: below -48 dBFS the band followers are exactly 0, with 3 dB of hysteresis; the high synthesis
+ * bands let go faster; the consonant noise is muted the instant the gate shuts. */
+/* A 1 kHz sine of this amplitude: the analysis level follower reads it at about 1.43 x the amplitude (a steady test
+ * signal: noise rides the follower's peaks and reads higher, by an amount that wanders). */
+static void feed_sine(daft_t *d, double amp, int n)
+{
+    for (int i = 0; i < n; i++) daft_process(d, (float)(amp * sin(2.0 * 3.14159265358979 * 1000.0 * (double)i / VT_SAMPLE_RATE)));
+}
+
+static int bands_zero(const daft_t *d)
+{
+    for (int i = 0; i < DAFT_BANDS; i++) if (d->env[i] != 0.0f) return 0;
+    return 1;
+}
+
+static void test_vocoder_floor_and_release(void)
+{
+    static daft_t d;
+
+    /* Auto: the followers are exactly zero under the floor (a sine of 0.0022 reads 0.0031, under -48 dBFS = 0.00398), it
+     * opens only above -45 dBFS = 0.00562 (0.0075 reads 0.0108), and once open stays open down to -48 (0.0035 reads 0.005) */
+    daft_init(&d, VT_SAMPLE_RATE);
+    daft_set_auto(&d, 1);
+    daft_set_params(&d, 0, 0.0f, 0.0f, 0.5f, 0.0f, 0.5f, 0.0f, -60.0f);
+    feed_sine(&d, 0.0022, 8000);
+    CHECK(bands_zero(&d) && d.hf_env == 0.0f && !d.an_open);
+    feed_sine(&d, 0.0035, 8000);                                               /* between -48 and -45: stays shut */
+    CHECK(bands_zero(&d) && !d.an_open);
+    feed_sine(&d, 0.0075, 8000);                                               /* above -45: opens */
+    CHECK(d.an_open && !bands_zero(&d));
+    feed_sine(&d, 0.0035, 8000);                                               /* back between: stays open */
+    CHECK(d.an_open && !bands_zero(&d));
+    feed_sine(&d, 0.0022, 8000);                                               /* under -48 again: shut, exactly zero */
+    CHECK(!d.an_open && bands_zero(&d));
+
+    /* a manual Gate lower than the floor wins: someone who set -60 dB asked to hear it */
+    daft_init(&d, VT_SAMPLE_RATE);
+    daft_set_auto(&d, 0);
+    daft_set_params(&d, 0, 0.0f, 0.0f, 0.5f, 0.0f, 0.5f, 0.0f, -60.0f);
+    feed_sine(&d, 0.0022, 8000);
+    CHECK(d.an_open && !bands_zero(&d));
+    /* and a manual Gate above it keeps the floor at -48 */
+    daft_init(&d, VT_SAMPLE_RATE);
+    daft_set_auto(&d, 0);
+    daft_set_params(&d, 0, 0.0f, 0.0f, 0.5f, 0.0f, 0.5f, 0.0f, -30.0f);
+    feed_sine(&d, 0.0022, 8000);
+    CHECK(!d.an_open && bands_zero(&d));
+
+    /* The high synthesis bands (above 3.5 kHz) release faster than the low ones: after a burst, the time for a 6 kHz band's
+     * envelope to fall 30 dB against a 700 Hz band's. (A manual -60 dB gate keeps the floor out of the way.) */
+    {
+        int lo_band = -1, hi_band = -1;
+        daft_init(&d, VT_SAMPLE_RATE);
+        daft_set_auto(&d, 0);
+        daft_set_params(&d, 0, 0.0f, 0.0f, 0.5f, 0.0f, 0.5f, 0.0f, -60.0f);
+        for (int i = 0; i < DAFT_BANDS; i++) {
+            if (lo_band < 0 || fabsf(d.centre[i] - 700.0f) < fabsf(d.centre[lo_band] - 700.0f)) lo_band = i;
+            if (hi_band < 0 || fabsf(d.centre[i] - 6000.0f) < fabsf(d.centre[hi_band] - 6000.0f)) hi_band = i;
+        }
+        CHECK(d.centre[hi_band] > 3500.0f && d.k_rel[hi_band] > d.k_rel[lo_band]);   /* the coefficients: faster above 3.5 kHz */
+        double fall[2] = { 0, 0 };
+        for (int k = 0; k < 2; k++) {
+            const int band = k ? hi_band : lo_band;
+            const double f = d.centre[band];
+            for (int i = 0; i < 8000; i++) daft_process(&d, 0.3f * (float)sin(2.0 * 3.14159265358979 * f * i / VT_SAMPLE_RATE));
+            const float peak = d.env[band];
+            int n = 0;
+            while (n < 8000 && d.env[band] > peak * 0.0316f) { daft_process(&d, 0.0f); n++; }
+            fall[k] = n;
+        }
+        if (!(fall[1] < 0.6 * fall[0])) printf("  band release, 30 dB: %.0f samples at 6 kHz vs %.0f at 700 Hz\n", fall[1], fall[0]);
+        CHECK(fall[0] > 100 && fall[1] < 0.6 * fall[0]);
+    }
+    /* The consonant noise carrier is muted at once when the voice gate shuts: sibilant noise in, the gate closes,
+     * and not another sample of it comes out (it used to fade out over the gate's 3 ms slew, with the bands still
+     * ringing on it) */
+    {
+        daft_init(&d, VT_SAMPLE_RATE);
+        daft_set_auto(&d, 0);
+        daft_set_params(&d, 0, 0.0f, 0.0f, 0.5f, 0.0f, 1.0f, 0.0f, -60.0f);
+        d.drone_enabled = 0;                                                  /* no carrier: all there is, is the noise */
+        unsigned s2 = 5;
+        float l = 0, r = 0, worst_open = 0;
+        for (int i = 0; i < 12000; i++) {
+            float x = 0.3f * lcg_noise(&s2);                                  /* hiss: a consonant */
+            daft_process_lr(&d, x, &l, &r);
+            if (i > 6000) worst_open = fmaxf(worst_open, fabsf(l));
+        }
+        CHECK(d.sib > 0.05f && worst_open > 1e-4f);                           /* it was sounding */
+        daft_set_voice_present(&d, 0);
+        float late = 0;
+        for (int i = 1; i <= 2205; i++) {                                     /* 50 ms, the same hiss still coming in */
+            daft_process_lr(&d, 0.3f * lcg_noise(&s2), &l, &r);
+            CHECK(d.sib == 0.0f);                                             /* no consonant noise injected from the first sample on */
+            if (i >= 441 && i < 882) late = fmaxf(late, fabsf(l));            /* 10 .. 20 ms: the bands' ring-out under the gate's fade */
+            if (i == 2205) CHECK(l == 0.0f && r == 0.0f);                     /* 50 ms: exact digital silence */
+        }
+        if (!(late < 1e-3f)) printf("  hiss 10-20 ms after the gate shut: %.3e (while open: %.3e)\n", late, worst_open);
+        CHECK(late < 1e-3f);
+    }
+}
+
+/* Walkie's receiver squelch: a short "kssh", all inside the handset's band, with nothing metallic ringing above it. */
+static void test_walkie_tail(void)
+{
+    static float l[2 * VT_SAMPLE_RATE];
+    vt_t *vt = vm_rig("Walkie", 0.5f, 0.5f, 0.0f, 0.5f, 0.5f);
+    dsp_set_param(vt, "gate", "-39 dB");
+    vm_tone_t on = { 190.0, 0.3, 14 };
+    vm_sine_t off = { 190.0, 0.0 };
+    long pos = 0;
+    vm_run(vt, vm_tone, &on, 0.6, &pos, NULL, NULL);
+    const int n = vm_run(vt, vm_sine, &off, 0.9, &pos, l, NULL);               /* the voice has just stopped */
+    /* above 3.5 kHz, two one-pole high-passes */
+    static float hp[2 * VT_SAMPLE_RATE];
+    {
+        const float a = expf(-2.0f * 3.14159265f * 3500.0f / VT_SAMPLE_RATE);
+        float h1 = 0, x1 = 0, h2 = 0, y1 = 0;
+        for (int i = 0; i < n; i++) {
+            const float y = a * (h1 + l[i] - x1); x1 = l[i]; h1 = y;
+            const float z = a * (h2 + y - y1); y1 = y; h2 = z;
+            hp[i] = z;
+        }
+    }
+    const int w = VT_SAMPLE_RATE / 40;                                          /* 25 ms */
+    int burst = -1;                                                             /* where the burst starts: the first window that is loud */
+    for (int i = 0; i + w <= n && burst < 0; i += w / 5) if (rms_of(l + i, w) > 0.01) burst = i;
+    CHECK(burst >= 0);
+    const double kssh = burst >= 0 ? 20.0 * log10(rms_of(l + burst, w) + 1e-12) : -200.0;          /* the burst itself */
+    const double sizzle = burst >= 0 ? 20.0 * log10(rms_of(hp + burst + 6 * w, 6 * w) + 1e-12) : 0.0;   /* above 3.5 kHz, 150 .. 300 ms after it began */
+    const double total_late = burst >= 0 ? 20.0 * log10(rms_of(l + burst + 8 * w, 4 * w) + 1e-12) : 0.0;   /* 200 .. 300 ms after it began */
+    if (!(kssh > -40.0 && sizzle < -62.0 && total_late < -52.0))
+        printf("  walkie squelch: burst %.1f dBFS, above 3.5 kHz 150-300 ms later %.1f dBFS, total 200-300 ms later %.1f dBFS\n", kssh, sizzle, total_late);
+    CHECK(kssh > -40.0);                                                        /* the "kssh" is there */
+    CHECK(sizzle < -62.0);                                                      /* and no cymbal ringing on above it */
+    CHECK(total_late < -52.0);                                                  /* it has died away by a quarter of a second */
+    /* it is a burst, not a hiss: well after it the output is quiet (the squelch at Squelch 0 is silent: checked in test_walkie) */
+    CHECK(rms_of(l + n - VT_SAMPLE_RATE / 5, VT_SAMPLE_RATE / 5) < 2e-4);
+    dsp_cleanup(vt);
 }
 
 /* ------------------------------------------------ Voice FX presets */

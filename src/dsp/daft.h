@@ -37,8 +37,14 @@ typedef struct {
     int   gate;                 /* key held */
     float amp, amp_target;      /* amplitude envelope */
     float lf, target_lf;        /* log2(frequency), glided */
-    float ph[2];                /* two detuned oscillators */
+    float ph[2];                /* two detuned oscillators: free-running, never reset by a note-on */
     float ph_sub;               /* Beauty's sub-octave sine */
+    /* A note that arrives on a sounding voice (a stolen slot, a chord that changed) does not jump in pitch: the voice
+     * fades out over half a millisecond, takes the new pitch at the bottom, and fades back in over the other half. */
+    int   rt;                   /* 0 idle, 1 fading out to the pending note, 2 fading in */
+    float rt_pos;               /* 0..1 through the current half */
+    int   pend_note;
+    float pend_lf;
 } daft_voice;
 
 typedef struct {
@@ -53,6 +59,11 @@ typedef struct {
 
     /* one-pole coefficients, computed in init */
     float k_env_a, k_env_r, k_hf_a, k_hf_r, k_lvl_a, k_lvl_r, k_amp_a, k_amp_r, k_gate, k_sib;
+    float k_rt;                 /* a re-trigger's half-fade: 1 / (0.5 ms in samples) */
+    float k_env_r_hi;           /* release of the envelopes of synthesis bands above 3.5 kHz: faster, so nothing rings after speech */
+    float k_rel[DAFT_BANDS];    /* each band's envelope release (k_env_r, or k_env_r_hi) */
+    float dc_r, dc_x, dc_y;     /* the carrier's 15 Hz DC blocker */
+    int   an_open;              /* the analysis floor gate (see AN_FLOOR_*): shut = every band envelope is held at exactly 0 */
     float k_agc_a, k_agc_r, k_sp_a, k_sp_r;
 
     /* Auto mode (daft_set_auto): AGC + adaptive gate (the drone is on either way) */
