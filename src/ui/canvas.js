@@ -17,7 +17,7 @@
  *   pads    the target note drawn inverted while a pad sets it, and a dot
  *           that flashes on every note-on (shows pads are reaching the FX)
  *
- * custom:tinyvoice_freeze spans SPACE knobs 4-5 (Freeze, Freeze Len). Off: the
+ * custom:tinyvoice_freeze spans MORE knobs 3-4 (Freeze, Freeze Len). Off: the
  * two values, centred in their cells like the stock knobs. Active: the box is
  * cleared and taken over - "[ *** ARMED *** ]" flashing inverted with the beats
  * left to bar 1 as squares, an inverted "[ REC ]" with the take filling,
@@ -193,7 +193,7 @@
         }
     }
 
-    /* ---- Freeze banner (SPACE knobs 4-5) ----
+    /* ---- Freeze banner (MORE knobs 3-4) ----
      *
      * The frame is the two cells' graphic area, above the host's label band
      * ("FREEZE", "FRELEN"). The host clips text at the frame's right edge but
@@ -288,7 +288,7 @@
         if (lp >= 0) ctx.fillRect(Math.max(0, Math.round(lp * (W - 3))), H - 3, 3, 3, 1);
     }
 
-    /* custom:tinyvoice_latch, MORE knob 2. In the modes Latch acts in (Robot, Nightcall, Harmony,
+    /* custom:tinyvoice_latch, MORE knob 6. In the modes Latch acts in (Robot, Nightcall, Harmony,
      * Chords, Prism) the value as the stock enum knob would show it, On
      * inverted so a held chord is seen at a glance; in the others a dimmed
      * "---" (every other pixel cleared: the 1-bit screen's grey). The cell,

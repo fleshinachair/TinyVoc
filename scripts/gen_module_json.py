@@ -1,6 +1,6 @@
 """Regenerate TinyVoice's module.json AND src/dsp/module_meta.h from one table:
 29 params, two personalities chosen by `engine` (the hierarchy's mode_param):
-  Vocoder: four pages (VOICE, PITCH, SPACE, MORE), plus three read-only
+  Vocoder: three pages (VOICE, PITCH, MORE), plus three read-only
            readouts (pitch, target, cents) that carry the OLED scope on PITCH
            knobs 5-7. VOICE is the home page: Mode, five contextual knobs, Mix, Level.
   VoiceFX: one page of eight knobs (Vowel, Tract, Peak, Choir, Breath, Attack,
@@ -72,7 +72,7 @@ PARAMS = [
     flt("vf_release", "Release", 0, 1, 0.01, 0.3, "%"),     # tail
     flt("vf_mix", "Mix/Drv", 0, 1, 0.01, 0.75, "%"),        # wet/dry up to 70 %, then all wet with the drive climbing
     flt("vf_preset", "Preset", 0, 5, 1, 5),                 # the Voice FX bank (presets.c); the host's preset browser writes it
-    # performance toggles (knobs on SPACE; not saved in "state")
+    # performance toggles (knobs on MORE; not saved in "state")
     enum("freeze", "Freeze", ["Off", "Rec", "Loop"], 0),       # punch-in looper (src/dsp/freeze.h)
     enum("demo", "Demo", ["Off", "On"], 0),
 ]
@@ -93,14 +93,14 @@ READOUTS = [
 for role, r in zip(["a", "b", "c"], READOUTS):
     r["viz"] = {"kind": "custom:tinyvoice_scope", "group": "scope", "role": role, "extra_keys": ["scope"]}
 
-# The Freeze banner spans SPACE knobs 4-5 (Freeze, Freeze Len): Off / ARMED /
+# The Freeze banner spans MORE knobs 3-4 (Freeze, Freeze Len): Off / ARMED /
 # REC / LOOP, the take length, and whether a transport clock is seen. The knobs
 # under it still turn; their values show in the header while touched.
 for role, k in zip(["a", "b"], ["freeze", "freeze_len"]):
     p = next(x for x in PARAMS if x["key"] == k)
     p["viz"] = {"kind": "custom:tinyvoice_freeze", "group": "freeze", "role": role, "extra_keys": ["scope"]}
 
-# Latch (MORE knob 2) draws its own value: On / Off in the modes it acts in
+# Latch (MORE knob 6) draws its own value: On / Off in the modes it acts in
 # (Robot, Chords, Prism, Nightcall, Harmony), a dimmed "---" in the others.
 next(x for x in PARAMS if x["key"] == "latch")["viz"] = {"kind": "custom:tinyvoice_latch", "group": "latch", "role": "a", "extra_keys": ["mode"]}
 
@@ -113,12 +113,14 @@ for k in ["key", "scale", "retune", "glide", "beauty"]:
 
 # Pages. VOICE is the home page (and the root's knobs): Mode, the five
 # contextual knobs, Mix, Level. PITCH: the tuning knobs and the scope on 5-7.
-# SPACE: Spread, Tone, Demo, Freeze (its banner spans knobs 4-5). MORE: Gate and
-# Latch. (No delay or reverb: removed on 2026-10-11, the chain has its own.)
+# MORE: Spread, Tone, Freeze + Freeze Len (the banner spans knobs 3-4) / Gate, Latch,
+# Beauty, Demo: eight knobs, Demo bottom right (the grid is 4 x 2 and a page cannot
+# have a gap, so Beauty, a per-mode polish control, moved here from PITCH to fill cell 7;
+# Gate and Latch used to sit alone on a page of their own).
+# No delay or reverb: removed on 2026-10-11, the chain has its own.
 VOICE = ["mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain"]
-PITCH = ["key", "scale", "retune", "glide", "pitch", "target", "cents", "beauty"]
-SPACE = ["spread", "tone", "demo", "freeze", "freeze_len"]
-MORE  = ["gate", "latch"]
+PITCH = ["key", "scale", "retune", "glide", "pitch", "target", "cents"]
+MORE  = ["spread", "tone", "freeze", "freeze_len", "gate", "latch", "beauty", "demo"]
 # Voice FX: its whole UI. No Mode, Key, Scale, Gate, Level or Latch: the engine runs with the automatic front end.
 VOICEFX = ["vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix"]
 MENU_ONLY = {}
@@ -154,11 +156,10 @@ a('                    "knobs": %s,' % line(VOICE))
 a('                    "params": [')
 a('                        {"level": "VOICE", "label": "Voice"},')
 a('                        {"level": "PITCH", "label": "Pitch"},')
-a('                        {"level": "SPACE", "label": "Space"},')
 a('                        {"level": "MORE", "label": "More"}')
 a('                    ]')
 a('                },')
-for name, label, keys, last in [("VOICE", "Voice", VOICE, False), ("PITCH", "Pitch", PITCH, False), ("SPACE", "Space", SPACE, False), ("MORE", "More", MORE, False)]:
+for name, label, keys, last in [("VOICE", "Voice", VOICE, False), ("PITCH", "Pitch", PITCH, False), ("MORE", "More", MORE, False)]:
     a('                "%s": {' % name)
     a('                    "label": "%s",' % label)
     a('                    "knobs": %s,' % line(keys))

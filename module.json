@@ -23,7 +23,6 @@
                     "params": [
                         {"level": "VOICE", "label": "Voice"},
                         {"level": "PITCH", "label": "Pitch"},
-                        {"level": "SPACE", "label": "Space"},
                         {"level": "MORE", "label": "More"}
                     ]
                 },
@@ -34,18 +33,13 @@
                 },
                 "PITCH": {
                     "label": "Pitch",
-                    "knobs": ["key", "scale", "retune", "glide", "pitch", "target", "cents", "beauty"],
-                    "params": ["key", "scale", "retune", "glide", "pitch", "target", "cents", "beauty"]
-                },
-                "SPACE": {
-                    "label": "Space",
-                    "knobs": ["spread", "tone", "demo", "freeze", "freeze_len"],
-                    "params": ["spread", "tone", "demo", "freeze", "freeze_len"]
+                    "knobs": ["key", "scale", "retune", "glide", "pitch", "target", "cents"],
+                    "params": ["key", "scale", "retune", "glide", "pitch", "target", "cents"]
                 },
                 "MORE": {
                     "label": "More",
-                    "knobs": ["gate", "latch"],
-                    "params": ["gate", "latch"]
+                    "knobs": ["spread", "tone", "freeze", "freeze_len", "gate", "latch", "beauty", "demo"],
+                    "params": ["spread", "tone", "freeze", "freeze_len", "gate", "latch", "beauty", "demo"]
                 },
                 "voicefx": {
                     "name": "Voice FX",

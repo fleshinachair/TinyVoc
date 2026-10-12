@@ -29,7 +29,7 @@ extern "C" {
 
 /* Parameter ids. Order matches module.json chain_params (which then adds three
  * read-only readouts). The order is not the page layout: that is VOICE, PITCH,
- * SPACE and MORE in scripts/gen_module_json.py. (Delay, Feedback and Reverb
+ * and MORE in scripts/gen_module_json.py. (Delay, Feedback and Reverb
  * were removed on 2026-10-11: a set saved with them ignores those keys.) char1/char2/mod are 0..1 macros
  * whose meaning (and served knob name) depends on the mode. */
 typedef enum {
@@ -68,7 +68,7 @@ typedef enum {
     VT_P_VF_MIX,        /* 0..1  Mix/Drive: wet/dry up to 0.7, then all wet with the drive climbing */
     VT_P_VF_PRESET,     /* index into the Voice FX bank (presets.c); writing it loads that preset into the
                          * eight knobs above. Transient: a saved state holds the knob values, not the preset. */
-    /* Performance toggles (knobs on SPACE), not saved in "state" */
+    /* Performance toggles (knobs on MORE), not saved in "state" */
     VT_P_FREEZE,       /* enum  Off, On: loop the last 4 s of input into the engine */
     VT_P_DEMO,          /* enum  Off, On: built-in sung phrase, modes advance every 4 bars */
     VT_P_COUNT

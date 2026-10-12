@@ -1183,13 +1183,12 @@ static void test_module_json_matches_params(void)
      * knobs; each page lists its params as key strings (or {"key": ...}).
      * Knobs are exactly the agreed layout, every knob is listed on its page,
      * and every param is on exactly one page. */
-    static const char *const want[4][8] = {
+    static const char *const want[3][8] = {
         { "mode", "char1", "char2", "mod", "char4", "char5", "mix", "gain" },       /* VOICE: Mode, five contextual knobs, Mix, Level */
-        { "key", "scale", "retune", "glide", "pitch", "target", "cents", "beauty" }, /* PITCH: scope on 5-7 */
-        { "spread", "tone", "demo", "freeze", "freeze_len" },                       /* SPACE: Freeze + its length side by side */
-        { "gate", "latch" },                                                         /* MORE: Gate (with Auto) + Latch */
+        { "key", "scale", "retune", "glide", "pitch", "target", "cents" },           /* PITCH: scope on 5-7 */
+        { "spread", "tone", "freeze", "freeze_len", "gate", "latch", "beauty", "demo" }, /* MORE: Freeze + its length side by side (top row), Gate (with Auto), Latch, Beauty, Demo bottom right */
     };
-    static const char *const page_names[4] = { "VOICE", "PITCH", "SPACE", "MORE" };
+    static const char *const page_names[3] = { "VOICE", "PITCH", "MORE" };
     const char *levels = js_get(js_get(caps, "ui_hierarchy"), "levels");
     CHECK(levels != NULL);
     if (!levels) return;
@@ -1212,13 +1211,13 @@ static void test_module_json_matches_params(void)
     int nlevels = 0;
     char names[16][32];
     while (js_nth_member(levels, nlevels, names[nlevels], sizeof names[0]) && nlevels < 16) nlevels++;
-    CHECK(nlevels == 6);
+    CHECK(nlevels == 5);
     CHECK(strcmp(names[0], "vocoder") == 0);
-    for (int l = 1; l < nlevels && l < 5; l++) CHECK(strcmp(names[l], page_names[l - 1]) == 0);
-    CHECK(strcmp(names[5], "voicefx") == 0);
+    for (int l = 1; l < nlevels && l < 4; l++) CHECK(strcmp(names[l], page_names[l - 1]) == 0);
+    CHECK(strcmp(names[4], "voicefx") == 0);
 
     int listed_on[VT_P_COUNT] = {0}, referenced[16] = {0};
-    for (int l = 0; l < nlevels && l < 5; l++) {
+    for (int l = 0; l < nlevels && l < 4; l++) {
         const char *lv = js_get(levels, names[l]);
         const int is_root = l == 0;
         const int pg = is_root ? 0 : l - 1;
@@ -2191,7 +2190,7 @@ static void test_served_metadata(void)
     static char hier[4096];
     CHECK(dsp_get_param(vt, "ui_hierarchy", hier, sizeof hier) > 0);
     const char *lv = js_get(hier, "levels");
-    CHECK(lv && js_get(lv, "vocoder") && js_get(lv, "VOICE") && js_get(lv, "PITCH") && js_get(lv, "SPACE") && js_get(lv, "MORE") && js_get(lv, "voicefx"));
+    CHECK(lv && js_get(lv, "vocoder") && js_get(lv, "VOICE") && js_get(lv, "PITCH") && js_get(lv, "MORE") && js_get(lv, "voicefx"));
     CHECK(js_get(hier, "modes") != NULL && js_get(hier, "mode_param") != NULL);          /* the host's Mode page writes `engine` */
 
     char small[64];

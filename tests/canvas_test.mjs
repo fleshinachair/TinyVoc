@@ -112,7 +112,7 @@ c = run({ scope: scope(0, 1, 0.5, 2.0, 0, 0, 0, new Array(16).fill(100)) }, 3200
 check(c.texts.includes("LOOP"), "freeze tag: LOOP while looping (Robot bars too)");
 check(c.outOfBounds === 0, "freeze tag: inside the frame");
 
-// ---- Freeze banner (SPACE knobs 4-5) ----
+// ---- Freeze banner (MORE knobs 3-4) ----
 check(ov.widgetKinds["custom:tinyvoice_freeze"] && typeof ov.widgetKinds["custom:tinyvoice_freeze"].draw === "function",
       "registers custom:tinyvoice_freeze");
 const drawFz = ov.widgetKinds["custom:tinyvoice_freeze"].draw;
@@ -209,7 +209,7 @@ check(c.px[(H - 2) * W + (W - 1)] === 0, "pad: the dot goes out again");
 c = run({ scope: scope(0, 0, 0, 0, 0, 0, 0, new Array(16).fill(255)) + ",12,-1,6" }, 22000);
 check(c.texts.includes("+12") && c.outOfBounds === 0, "auto readout over the bars, inside the frame");
 
-// ---- Latch (MORE knob 7): On / Off where it acts, a dimmed "---" elsewhere ----
+// ---- Latch (MORE knob 6): On / Off where it acts, a dimmed "---" elsewhere ----
 check(ov.widgetKinds["custom:tinyvoice_latch"] && typeof ov.widgetKinds["custom:tinyvoice_latch"].draw === "function",
       "registers custom:tinyvoice_latch");
 const drawLt = ov.widgetKinds["custom:tinyvoice_latch"].draw;
