@@ -4478,6 +4478,7 @@ int main(void)
     RUN(test_tour);
     RUN(test_voicefx_audition);
     RUN(test_voicefx_tour);
+    RUN(test_voicefx_ghost_hands);
     RUN(test_vocoder_carrier);
     RUN(test_vocoder_floor_and_release);
     RUN(test_walkie_tail);

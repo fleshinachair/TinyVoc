@@ -9,7 +9,7 @@ TinyVoice (formerly TinyVoc) is an audio FX module for [Schwung](https://github.
 
 - [Two engines, one switch](#two-engines-one-switch)
 - [Vocoder](#vocoder): the modes · the contextual knobs
-- [Voice FX](#voice-fx): the eight knobs · the presets · the Audition groove
+- [Voice FX](#voice-fx): the eight knobs · the presets · the Audition phrase and Showcase Tour
 - [Setup and gain staging](#setup-and-gain-staging)
 - [Performance walkthroughs](#performance-walkthroughs)
 - [Parameter map](#parameter-map)
@@ -28,7 +28,7 @@ The first page in the module is the **Mode** page, a list drawn by Schwung: pick
 | What it does | Multi-band speech/carrier vocoder, plus the voice transformers: 13 modes | A four-formant vowel filter on the voice: no vocoder bands, no carrier, no pitch tracking |
 | Pads | Play the carrier, set target notes, make chords (mode-dependent) | Not used |
 | Gate / Level / Key / Scale / Latch | Yours to set | Hidden. Voice FX always runs with **Auto** on, Tone off and Level at 0 dB |
-| Demo | A built-in sung phrase that tours the modes | A built-in syncopated funk bass groove |
+| Demo | A built-in sung phrase that tours the modes | A built-in 8-bar electro-funk phrase, with a **Showcase Tour** that moves the knobs for you |
 
 Nothing you set in one engine changes the other: Voice FX has its own parameters, and a test checks that its output is bit-identical whatever the Vocoder's Mode, Key, Gate, Level, Mix, Tone, Spread or pads are set to.
 
@@ -59,7 +59,7 @@ One **Mode** knob steps through a single list: the vocoder and carrier modes fir
 | **Dalek** | Ignored | A single-sideband frequency shifter (a Hilbert pair, ±500 Hz) plus the classic 30 Hz ring modulator | Metallic, inharmonic, sci-fi villain |
 | **HardTune** | A held pad is the target note | The robotic quantizer: zero slew, to your Key and Scale or to a pad, formant left alone | Unmistakable robotic tuning |
 | **Harmony** | Held pads set the intervals | A three-tap granular stack at −12, +7 and +12 semitones, panned, micro-delayed and drifting. Hold a chord and the taps become its intervals above the lowest note (C-E-G gives +4, +7) | A stack of yourself |
-| **Walkie** | Ignored | A handset: a 350 Hz–3 kHz band, a presence peak, a mic compressor that slams every phrase to one level, diode clipping, and a receiver that **mutes between phrases** and squelches (a short burst on open, a long "kssh" on close) | Intercom, megaphone, cheap radio |
+| **Walkie** | Ignored | A handset: a 350 Hz–3 kHz band, a presence peak, a mic compressor that slams every phrase to one level, diode clipping, and a receiver that **mutes between phrases** and squelches (a short burst on open, a brief "kssh" on close, all inside the handset's band, with nothing metallic ringing on above it) | Intercom, megaphone, cheap radio |
 | **Morph**, **Double** | Morph and Double follow a held pad | The two older PSOLA modes: a formant-decoupled shifter into drive; a hard-tuned lead with two detuned Haas doubles | Kept as they were |
 
 ### The five contextual knobs change with the mode
@@ -124,58 +124,37 @@ The **Presets** page is Schwung's own browser: **turn the jog wheel** to step th
 | 5 | **Alien Choir** | 0.60 | 0.833 | 0.55 | 1.00 | 0.85 | 0.30 | 0.55 | 0.80 | Tract up 0.4 octave, full width, lots of air |
 | 6 | **Vowel Morph Solo** | 0.00 | 0.50 | 0.50 | 0.35 | 0.15 | 0.12 | 0.30 | 0.75 | Neutral and balanced, for riding Vowel across all five vowels by hand |
 
-### The Audition groove (Audition page)
+### The Audition phrase and Showcase Tour (Audition page)
 
-The **Audition** page has one knob: **Demo**, Off / On. With Demo **On**, Voice FX ignores its input and plays a built-in **two-bar funk bass groove** through the filter, so you can audition every preset and every knob with nothing routed in. With Demo **Off**, your track's audio passes through as normal.
+The **Audition** page has one knob: **Demo** (Off / On). With Demo **On**, Voice FX ignores its input and plays a built-in **eight-bar electro-funk phrase** through the filter while the **Showcase Tour** moves the knobs for you, so you can hear what the engine does with nothing routed in. With Demo **Off**, your track's audio passes through your own knobs as normal.
 
-- **Tone:** two bright, band-limited saw oscillators a few cents apart, through a pluck filter that opens on each hit, with a punchy 1.5 ms attack and a short decay.
-- **Pattern:** 32 sixteenth-note steps of D minor, syncopated, in the D1–D2 bass range (36.7–73.4 Hz). Every hit restarts the oscillators, so the loop repeats exactly.
-- **Tempo:** the Move's tempo. It starts from its first step when you turn Demo on; it is not locked to the transport.
-- **Where it sits:** it replaces the input before the formants and drive. Its lowest notes fall under the 120 Hz input high-pass (see [Setup](#setup-and-gain-staging)); it is the harmonics you hear.
+**The phrase**
+
+- **Tone:** bright, harmonic-rich dual-saw voices (two saws a few cents apart) through a pluck filter that opens on each hit, with snappy 1-1.5 ms attacks, ideal for exciting formants.
+- **Composition:** D minor, 128 sixteenths: **Dm7 · Dm7 · Bbmaj7 · Cadd9 · Dm7 · Dm7 · Gm7 · A7** (the turnaround), with a syncopated bass line (D2 up to C4: roots, octaves, a fifth and a seventh, in three patterns that answer one another) under **staccato four-note chord stabs**, all of them off the beat.
+- **Tempo:** the Move's tempo. Every hit restarts its oscillators, so the loop repeats exactly (16 s at 120 bpm). It starts from bar 1 when you turn Demo on and is not locked to the transport.
+- **Where it sits:** it replaces the input before the formants and drive. The bass stays above the 120 Hz input high-pass (see [Setup](#setup-and-gain-staging)), so its fundamentals are heard.
+
+**The Showcase Tour ("ghost hands")**
+
+With Demo On, the Tour moves five of the eight knobs for you across the phrase's eight bars, then loops seamlessly back to bar 1. It works on *effective* values inside the engine: **your knob positions are never changed** (nor what is saved with the set). Breath, Attack and Release stay yours.
+
+| Bars | Phase | What moves |
+|---|---|---|
+| 1-2 | **Neutral baseline** | Low resonance (Peak 0.15), mostly the raw synth (Mix/Drv 0.30), vowel A: what the synth sounds like |
+| 3-4 | **Vowel Morph** | Vowel glides **u → o → a → e → i**, half a bar each (straight from one vowel to the next), with Peak 0.5 and a wet, clean sound, so the synth talks |
+| 5-6 | **Drive & Peak** | Mix/Drv climbs 0.7 → 1.0 into saturation while Peak ramps 0.5 → 0.95: aggressive, squelchy talkbox grit on an open "ah" |
+| 7-8 | **Tract & Choir** | Tract dives to a deep chest voice, swings up to soprano and returns to natural, while Choir opens to full stereo width and closes again |
+
+While the Tour plays, the Vowel, Tract, Peak, Choir and Mix/Drv knobs (and so a preset's values for them) do nothing: the Tour sets them. A preset's Breath, Attack and Release still apply. To hear a preset, turn Demo Off and play through it.
 
 The Audition page is separate from the eight Main knobs on purpose: the Mode page and the preset browser are drawn by Schwung and have no room for a switch, so Demo has a page of its own. The Vocoder's Demo (the sung phrase) is untouched.
-
----
-
-## Setup and gain staging
-
-TinyVoice is an **audio FX**: it processes the audio in the Schwung slot it sits in. For your voice, put Schwung's **Line In** module in the slot as the sound generator (it brings the Move's physical input into the slot) and TinyVoice after it as the audio FX.
-
-> **Feedback warning.** Singing into a mic with the speakers on is a feedback loop. Line In warns about it and holds the slot bypassed until it's safe. Use headphones for the first try.
-
-> **Line In listens to the jack when something is plugged in.** If a cable or adapter is in the Move's line-in socket, Line In uses that instead of the built-in mic. If everything goes silent, check the socket first.
-
-### Built-in mic
-
-- **Distance.** Start 4–24 inches from the mic. Closer gets you more voice and less room.
-- **Enunciate.** Over-pronounce consonants: "s", "t" and "k" are what make a vocoder understandable, and the mic's small capsule needs the help.
-- **Pad taps.** TinyVoice high-passes its input at **120 Hz**, so the thump of hitting a pad, and chassis vibration, doesn't open the gate or muddy the vocoder (a 40 Hz thump drops about 10 dB). It's a gentle filter: a hard pad hit still leaks a little.
-- **Level.** In **Auto** the scope shows how much boost TinyVoice is adding (`+NN`, up to +12 dB). If it sits at `+12`, the mic is too quiet to be lifted fully: raise Line In's **Input Trim** until it falls below.
-
-### Line-in and headsets
-
-Line In has Line, Guitar and Phono input types and an Input Trim of −12 to +40 dB. A line-level source needs no trim; a weak source (a headset mic, say) may want Guitar or extra trim. **Headset and external mics are untested** with TinyVoice.
-
-Because TinyVoice processes whatever audio arrives in its slot, a Schwung synth or sampler sitting in that slot can be processed too. For Voice FX any harmonic-rich source works; the pitch modes want clearly pitched, fairly mono material. **Routing audio from other Move tracks into TinyVoice is untested.**
-
-### Dialing the Gate (More page, knob 5; Vocoder)
-
-One knob, two ideas:
-
-- **Auto** (fully counter-clockwise): TinyVoice opens its voice gate at −42 dBFS (RMS) and lifts soft voices for you. Best for most rooms. **Voice FX always uses Auto.**
-- **−60 … 0 dB** in 3 dB steps: you set the gate level; Auto's auto-gain is off. Turn it up until the room goes quiet between phrases, then back down a step until your quietest words still get through.
-
-The gate matters most in **Robot** and **Nightcall**: when it is closed, they are exact digital silence, even with a chord held; when it opens, the carrier plays. In **Walkie** the same gate fires the receiver's squelch and unmutes the channel. If a vocoder hisses or bursts in your room between words, raise the Gate. (In the test room, ambient bursts peaked around −29 to −40 dBFS about once a second, above Auto's −42 dBFS, so Robot kept answering them. Only a manual gate above the loudest burst silenced it, at the price of needing a louder voice to open. Your room will differ: raise the gate until it's quiet, no further.)
-
----
-
-## Performance walkthroughs
 
 ### Auditioning Voice FX in thirty seconds
 
 1. On the Mode page, pick **VoiceFX**.
-2. Go to the **Audition** page and turn **Demo** On. The funk groove starts.
-3. On the **Presets** page, click through the six presets.
+2. Go to the **Audition** page and turn **Demo** On. The funk phrase starts and the **Showcase Tour** plays: sixteen seconds that show the raw synth, a vowel sweep, drive and squelch, then chest voice, soprano and a wide choir, and around again.
+3. Turn Demo Off, then click through the six presets on the **Presets** page and sing (or play a bass line) through each.
 4. On **Main**, ride **Vowel** (knob 1) across A-E-I-O-U, push **Peak** and **Mix/Drv**, and open **Release** for a tail. Turn Demo Off and sing.
 
 ### Chord Latch: hands-free harmonies (More page, knob 6; Vocoder)
@@ -198,17 +177,18 @@ Turn **Demo** On and TinyVoice replaces the mic with a built-in sung phrase and 
 Freeze is **delightfully experimental and unpredictable.** It's a punch-in looper that sits *before* every mode: it records what you sing, then loops it back through whatever mode, pads and knobs are active. Use it to:
 
 - hold a vowel as an **instant vocal drone** and sing or play over it;
-- make **unexpected micro-loops**: in **Free** length, stop a take after a fraction of a second and it becomes a buzzy, pitched loop;
+- make **short stutter loops**: in **Free** length, a take can be as short as **120 ms** (a take stopped sooner is extended to that, and a tap under 50 ms is ignored, so an accidental touch can't become a buzzy few-millisecond "pitch");
 - smear **glitchy textures** by changing the mode while a loop runs.
 
-It is *not* a DAW clip: it is mono and 16-bit, has no overdub, editing or undo, holds up to 16 s, and has not been tuned on real voices. Treat it as a happy accident machine. (Freeze sits after the input, so a looping take also replaces the Voice FX groove.)
+It is *not* a DAW clip: it is mono and 16-bit, has no overdub, editing or undo, holds up to 16 s, and has not been tuned on real voices. Treat it as a happy accident machine. (Freeze sits after the input, so a looping take also replaces the Voice FX phrase.)
 
 **How it works.** Knob 3 (**Freeze**) is Off / Rec / Loop. Knob 4 (**Freeze Len**) is Free / 1 Bar / 2 Bars / 4 Bars, on the top row of the grid, where a banner draws across both.
 
 - **Free:** turn Freeze to Rec, sing, then to Loop to lock exactly what you recorded.
 - **1, 2 or 4 Bars:** turn Freeze to Rec. With Move's transport running and MIDI clock output on, it **arms** (the banner flashes ARMED), starts **exactly on the next downbeat**, records for the chosen bars, then **loops by itself** (the knob moves to Loop). With the transport stopped it records at once.
 - **Off** keeps the take; Off → Loop replays it. Loop → Rec records a new one.
-- The loop seam is a 5 ms crossfade; changing between live and loop fades over 10 ms.
+- **Minimum loop:** a take stopped **under 50 ms** is rejected (it was an accidental tap: nothing loops, you stay live). A take stopped between 50 ms and 120 ms **keeps recording after you let go**, whatever you sing next, until the loop is 120 ms, then does what you asked (Loop or Off). Ask for Rec again meanwhile and it carries on as an ordinary take.
+- The loop seam is a 5 ms equal-power crossfade; changing between live and loop fades over 10 ms.
 
 *Tempo sync needs Move's MIDI clock output enabled (`midiClockMode` set to `output` in Move's `Settings.json`).*
 
@@ -264,7 +244,7 @@ Move has eight encoders in a **4 × 2 grid** (cells 1–4 on the top row, 5–8 
 | | 6 | **Attack** | 0–1, 0.5 … 120 ms swell |
 | | 7 | **Release** | 0–1, 0 = no tail |
 | | 8 | **Mix/Drv** | 0–1, wet/dry to 0.7, then drive ×1.3 … ×5 |
-| Audition | 1 | **Demo** | Off, On: the funk groove replaces the input. Not saved |
+| Audition | 1 | **Demo** | Off, On: the funk phrase replaces the input and the Showcase Tour moves Vowel, Tract, Peak, Choir and Mix/Drv over the 8 bars. Not saved |
 
 ### Jog wheel
 
@@ -282,7 +262,7 @@ TinyVoice defines no jog-wheel functions of its own. The jog wheel is Schwung's 
 | All-notes-off | CC 120 and CC 123 release everything and empty the Latch | n/a |
 | Ignored | Pitch bend, mod wheel, aftertouch, program change, CCs other than 120 and 123 | Everything |
 | Other tracks | Schwung also broadcasts every track's MIDI to every audio FX; TinyVoice **drops** those, so only the slot's own pads play | Dropped as well |
-| Tempo and transport | The host tempo drives the Demo tour (4 bars per mode), Freeze's bar lengths and the Audition groove. The transport position (for Freeze's downbeat arming) needs Move's MIDI clock output on | The tempo drives the groove only |
+| Tempo and transport | The host tempo drives the Demo tour (4 bars per mode), Freeze's bar lengths and the Audition phrase. The transport position (for Freeze's downbeat arming) needs Move's MIDI clock output on | The tempo drives the groove only |
 
 ---
 
@@ -293,7 +273,7 @@ TinyVoice defines no jog-wheel functions of its own. The jog wheel is Schwung's 
 
   | | per block |
   |---|---|
-  | **Voice FX** (any preset, groove running) | **≈ 0.12 ms** (about 5 % of the block) |
+  | **Voice FX** (any preset, phrase or tour running) | **≈ 0.12 ms** (about 5 % of the block) |
   | Dalek, Walkie | 0.08–0.10 ms |
   | Nightcall, Robot | 0.18–0.20 ms |
   | HardTune, Tape, Morph, Double, Scream, Harmony | 0.31–0.38 ms |
@@ -340,14 +320,14 @@ The architecture, signal flow, ABI notes and every parameter are in [CLAUDE.md](
 
 ## Known limitations
 
-- Tuned on synthetic voices and tones, the built-in groove and a built-in mic; real-voice tuning of every mode, and of Voice FX's formant table and drive curve, is still to do.
+- Tuned on synthetic voices and tones, the built-in phrase and a built-in mic; real-voice tuning of every mode, and of Voice FX's formant table and drive curve, is still to do.
 - Voice FX is a **four-formant filter**, not a vocoder: it shapes what harmonics it is given, so a very quiet or very noisy source sounds thin or hissy. It has no envelope-to-vowel modulation (ride Vowel by hand).
 - The Mode page and the Presets browser are Schwung's own and use its list style. Only one other Schwung module is known to use the same engine-switch mechanism, so report any oddity.
 - Pitch tracking covers about 70 Hz–1 kHz, shifted voices ±1 octave. Scream is a pitch-synchronous (PSOLA) shifter rather than WSOLA; Harmony's grain follows your pitch (it needs a tracked voice to stay phase-coherent).
 - Robot and Snap still follow pads (their pad behaviour is part of what they are); only Scream, Dalek, Walkie and Tape ignore them.
 - Freeze is experimental (see above). Headsets, external mics and routing other tracks into TinyVoice are untested.
 - Key and Scale are set on the Pitch page; they don't follow Move's project.
-- The Audition groove starts when Demo is switched on; it is not locked to the transport.
+- The Audition phrase starts when Demo is switched on; it is not locked to the transport. The Tour moves values inside the engine, so the knob positions on screen do not move while it plays.
 - No licence file yet: all rights reserved until one is added.
 
 See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the changelog.

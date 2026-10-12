@@ -202,7 +202,9 @@ int main(int argc, char **argv)
         for (int p = 0; p < 6; p++) {
             char idx[8];
             snprintf(idx, sizeof idx, "%d", p);
+            api->set_param(inst, "demo", "Off");                           /* the browser is a hand on the tour: it ends it, so choose first ... */
             api->set_param(inst, "vf_preset", idx);
+            api->set_param(inst, "demo", "On");                            /* ... then start Demo */
             char name[40] = "?";
             api->get_param(inst, "vf_preset_name", name, sizeof name);
             static int16_t sb[2 * 128];
@@ -238,17 +240,34 @@ int main(int argc, char **argv)
         {
             char before[5][16], after[16];
             static const char *const kn[5] = { "vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_mix" };
+            api->set_param(inst, "demo", "Off");
             api->set_param(inst, "vf_preset", "5");
             for (int k = 0; k < 5; k++) { before[k][0] = 0; api->get_param(inst, kn[k], before[k], sizeof before[k]); }
+            api->set_param(inst, "demo", "On");
             static int16_t sb[2 * 128];
             double bar_acc[8] = { 0 };
             long bar_n[8] = { 0 };
+            /* the screen's view: the host's UI re-reads every visible knob a few times a second through get_param, so the
+             * tour is on the OLED if these move. (Only the five the tour turns: Vowel, Tract, Peak, Choir, Mix/Drv.) */
+            static const char *const shown[5] = { "vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_mix" };
+            double lo_v[5] = { 9, 9, 9, 9, 9 }, hi_v[5] = { -9, -9, -9, -9, -9 };
+            int polls = 0;
             int peak = 0, blocks = 16 * 44100 / 128;
             struct timespec t0, t1;
             clock_gettime(CLOCK_MONOTONIC, &t0);
             for (int b = 0; b < blocks; b++) {
                 memset(sb, 0, sizeof sb);
                 api->process_block(inst, sb, 128);
+                if (b % 28 == 27) {                                        /* ~80 ms */
+                    for (int k = 0; k < 5; k++) {
+                        char g[24] = "";
+                        api->get_param(inst, shown[k], g, sizeof g);
+                        const double v = atof(g);
+                        if (v < lo_v[k]) lo_v[k] = v;
+                        if (v > hi_v[k]) hi_v[k] = v;
+                    }
+                    polls++;
+                }
                 const int bar = (int)((double)b * 128.0 / (2.0 * 44100.0)) & 7;
                 for (int i = 0; i < 128; i++) { const int v = sb[2 * i]; if (abs(v) > peak) peak = abs(v); bar_acc[bar] += (double)v * v; }
                 bar_n[bar] += 128;
@@ -266,7 +285,22 @@ int main(int argc, char **argv)
             CHECK(!quiet_bar);
             CHECK(peak <= 16236);
             CHECK(ms < 2.0);
-            for (int k = 0; k < 5; k++) { after[0] = 0; api->get_param(inst, kn[k], after, sizeof after); CHECK(strcmp(before[k], after) == 0); }   /* the knobs are untouched */
+            printf("  ghost hands on the screen, %d polls: vowel %.2f..%.2f  tract %.2f..%.2f  peak %.2f..%.2f  choir %.2f..%.2f  mix/drv %.2f..%.2f\n", polls,
+                   lo_v[0], hi_v[0], lo_v[1], hi_v[1], lo_v[2], hi_v[2], lo_v[3], hi_v[3], lo_v[4], hi_v[4]);
+            for (int k = 0; k < 5; k++) CHECK(hi_v[k] - lo_v[k] > 0.5);        /* every one of the five turns through a good part of its range */
+            /* Demo Off: the very next read of each knob is the user's own value again, as it was set */
+            api->set_param(inst, "demo", "Off");
+            for (int k = 0; k < 5; k++) { after[0] = 0; api->get_param(inst, kn[k], after, sizeof after); CHECK(strcmp(before[k], after) == 0); }
+            /* a hand on a knob while the tour runs: Demo steps aside, the written value is kept */
+            api->set_param(inst, "demo", "On");
+            for (int b = 0; b < 300; b++) { memset(sb, 0, sizeof sb); api->process_block(inst, sb, 128); }
+            api->set_param(inst, "vf_tract", "0.9");
+            char dm[16] = "", tr[16] = "";
+            api->get_param(inst, "demo", dm, sizeof dm);
+            api->get_param(inst, "vf_tract", tr, sizeof tr);
+            printf("  a hand on Tract mid-tour: Demo reads %s, Tract %s\n", dm, tr);
+            CHECK(strcmp(dm, "Off") == 0 && fabs(atof(tr) - 0.9) < 1e-6);
+            api->set_param(inst, "vf_tract", before[1]);                       /* put it back */
         }
     }
     /* Freeze: no accidental micro-loops. A 30 ms tap is dropped (it stays live); a 70 ms take records on until the

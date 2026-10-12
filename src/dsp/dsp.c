@@ -181,6 +181,13 @@ struct vt {
     demo_t demo;                /* built-in sung phrase */
     vfx_t vfx;                  /* Voice FX: the formant engine of the second personality */
     groove_t groove;            /* Voice FX's audition source: what Demo plays there instead of the sung phrase */
+    /* Ghost hands, as the screen sees them. While the Showcase Tour runs, get_param on Voice FX's knobs answers
+     * `disp` (the tour's current values, snapshotted by the audio block: get_param and set_param run on the same
+     * callback thread, so a read never races the write) and the host's UI, which re-reads every visible knob a few
+     * times a second, shows them turning. `p` is never touched, and "state" (what the host saves and hashes) is
+     * built from `p`, so the user's own settings are what is kept, and nothing is ever re-saved because of the tour. */
+    float disp[VT_PRESET_VALUES];
+    int   disp_on;
     double demo_time;           /* seconds since Demo was switched on */
     float in_env, agc_goal, agc_gain;   /* Auto input AGC */
     float k_agc_att, k_agc_rel, k_agc_gain;
@@ -462,6 +469,14 @@ static int format_chain_params(const vt_t *vt, char *buf, int buf_len)
     return n;
 }
 
+/* The knobs the Showcase Tour turns (Vowel, Tract, Peak, Choir, Mix/Drv), and the preset browser, which would
+ * load values over it: a write to any of them while the tour runs is the player's hand. */
+static int tour_moves(int id)
+{
+    return id == VT_P_VF_VOWEL || id == VT_P_VF_TRACT || id == VT_P_VF_PEAK || id == VT_P_VF_CHOIR ||
+           id == VT_P_VF_MIX || id == VT_P_VF_PRESET;
+}
+
 int dsp_set_param(vt_t *vt, const char *key, const char *val)
 {
     if (!vt || !key || !val) return -1;
@@ -507,6 +522,18 @@ int dsp_set_param(vt_t *vt, const char *key, const char *val)
      * (it may come before "mode" in the object), and so does any write in the
      * first second after load, in case the host restores a set key by key. */
     if (!vt->restoring && vt->warm_samples >= vt->sample_rate && !vt_param_acts(id, (int)vt->p[VT_P_MODE])) return 0;
+
+    /* The screen shows the tour's values only while it runs: switching Demo or the engine ends that at once, so the
+     * very next read of a knob is the user's own. */
+    if (id == VT_P_DEMO || id == VT_P_ENGINE) vt->disp_on = 0;
+    /* A hand on a knob the tour is turning (the host writes the knob it was turned from the value it was SHOWING, so
+     * the player takes over from where the dial was) or on the preset browser: the tour steps aside. Demo goes Off,
+     * the value written is the user's, and every other knob is back on the user's own value. A state restore is not
+     * a hand; neither is a knob the tour leaves alone (Breath, Attack, Release). */
+    if (!vt->restoring && vt->disp_on && vt->demo_active && tour_moves(id)) {
+        vt->p[VT_P_DEMO] = 0.0f;
+        vt->disp_on = 0;
+    }
 
     if (d->type == VT_PTYPE_ENUM) {
         for (int i = 0; i < d->num_options; i++) {
@@ -635,6 +662,8 @@ int dsp_get_param(vt_t *vt, const char *key, char *buf, int buf_len)
             n = snprintf(buf, (size_t)buf_len, "%s", d->options[(int)vt->p[id]]);
         else if (id == VT_P_CHAR4 || id == VT_P_CHAR5)
             n = snprintf(buf, (size_t)buf_len, "%g", (double)slot_value(vt, id));
+        else if (vt->disp_on && (id == VT_P_VF_VOWEL || id == VT_P_VF_TRACT || id == VT_P_VF_PEAK || id == VT_P_VF_CHOIR || id == VT_P_VF_MIX))
+            n = snprintf(buf, (size_t)buf_len, "%g", (double)vt->disp[id - VT_P_VF_VOWEL]);     /* the tour's value, for the screen (Breath, Attack and Release are not its to turn) */
         else
             n = snprintf(buf, (size_t)buf_len, "%g", (double)vt->p[id]);
     }
@@ -1012,6 +1041,12 @@ void dsp_process_block_f(vt_t *vt, float *lr, int frames)
     if (tour_on) {
         tour_eval(groove_bar(&vt->groove), &tour);
         vfp[1] = tour.tract; vfp[2] = tour.peak; vfp[3] = tour.choir; vfp[7] = tour.mix;
+        /* what the screen shows: the effective knobs, and the vowel as a position on the A E I O U line */
+        for (int k = 0; k < VT_PRESET_VALUES; k++) vt->disp[k] = vfp[k];
+        vt->disp[0] = ((float)tour.v0 + (float)(tour.v1 - tour.v0) * tour.vt) * 0.25f;
+        vt->disp_on = 1;
+    } else {
+        vt->disp_on = 0;
     }
     groove_set_bpm(&vt->groove, vt->bpm);                           /* the audition loop follows the host tempo */
     const float mix  = vf ? clampf(vfp[7] / VFX_MIX_KNEE, 0.0f, 1.0f) : vt->p[VT_P_MIX];   /* Voice FX: wet/dry up to the knee, drive above */

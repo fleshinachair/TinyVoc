@@ -1695,11 +1695,12 @@ static void test_voicefx_tour(void)
             memset(blk, 0, sizeof blk);
             dsp_process_block_f(vt, blk, 128);
         }
+        static char st[1536];
+        CHECK(dsp_get_param(vt, "state", st, sizeof st) > 0 && strstr(st, "\"vf_vowel\":0.91") && strstr(st, "\"vf_peak\":0.77") && strstr(st, "\"vf_mix\":0.52"));   /* what would be saved is yours, with the tour still running */
+        dsp_set_param(vt, "demo", "Off");                                              /* ... and the knobs are yours the instant it stops (the screen shows the tour's values while it runs) */
         for (int k = 0; k < 8; k++) {
             CHECK(dsp_get_param(vt, keys[k], b, sizeof b) > 0 && fabs(atof(b) - atof(mine[k])) < 1e-6);
         }
-        static char st[1536];
-        CHECK(dsp_get_param(vt, "state", st, sizeof st) > 0 && strstr(st, "\"vf_vowel\":0.91") && strstr(st, "\"vf_peak\":0.77") && strstr(st, "\"vf_mix\":0.52"));   /* ... and so does what would be saved */
         dsp_cleanup(vt);
     }
     /* Demo is the tour, and the tour decides Vowel, Tract, Peak, Choir and Mix/Drv: whatever those knobs say, the output is
@@ -1780,6 +1781,141 @@ static void test_voicefx_tour(void)
         if (bad || over) printf("  tour: non-finite %d, over the ceiling %d (peak %.3f)\n", bad, over, worst);
         CHECK(bad == 0 && over == 0);
         CHECK(worst > 0.1);
+    }
+}
+
+/* Ghost hands on the screen: while the tour runs the knobs read as the tour's values (the host's UI polls them, so they
+ * turn on the display); what is saved stays the user's; a hand on a turning knob ends the tour. */
+static void test_voicefx_ghost_hands(void)
+{
+    static const char *const keys[8] = { "vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_breath", "vf_attack", "vf_release", "vf_mix" };
+    static const char *const mine[8] = { "0.91", "0.13", "0.77", "0.29", "0.44", "0.66", "0.38", "0.52" };
+    static float blk[2 * 128];
+    char b[32];
+
+    {
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "engine", "VoiceFX");
+        for (int k = 0; k < 8; k++) dsp_set_param(vt, keys[k], mine[k]);
+        static char st0[1536], st[1536];
+        CHECK(dsp_get_param(vt, "state", st0, sizeof st0) > 0);
+        /* before Demo the screen shows the user's own values */
+        for (int k = 0; k < 8; k++) CHECK(dsp_get_param(vt, keys[k], b, sizeof b) > 0 && fabs(atof(b) - atof(mine[k])) < 1e-6);
+        dsp_set_param(vt, "demo", "On");
+
+        int blocks = 0, samples_checked = 0, state_moved = 0, bad_range = 0, bad_follow = 0, held = 0;
+        double vmin = 9, vmax = -9, tmin = 9, tmax = -9, cmax = -9, pmax = -9, mmax = -9;
+        double prev_v = -1, worst_v_step = 0;
+        for (int bn = 0; bn < 17 * VT_SAMPLE_RATE / 128; bn++) {                       /* a whole loop and a bit */
+            memset(blk, 0, sizeof blk);
+            dsp_process_block_f(vt, blk, 128);
+            blocks++;
+            if (bn % 28 != 0) continue;                                                /* ~ every 80 ms: the host's polling, a few times a second */
+            samples_checked++;
+            /* what the screen would read, against the tour at the bar this block began on */
+            tour_t t;
+            tour_eval((float)((blocks - 1) * 128) / (float)(2 * VT_SAMPLE_RATE), &t);
+            double v[8];
+            for (int k = 0; k < 8; k++) { CHECK(dsp_get_param(vt, keys[k], b, sizeof b) > 0); v[k] = atof(b); if (v[k] < -1e-6 || v[k] > 1.000001) bad_range++; }
+            const double want_v = (t.v0 + (t.v1 - t.v0) * (double)t.vt) * 0.25;
+            if (fabs(v[0] - want_v) > 0.02 || fabs(v[1] - t.tract) > 0.02 || fabs(v[2] - t.peak) > 0.02 || fabs(v[3] - t.choir) > 0.02 || fabs(v[7] - t.mix) > 0.02) bad_follow++;
+            for (int k = 4; k < 7; k++) if (fabs(v[k] - atof(mine[k])) > 1e-6) held++;   /* Breath, Attack, Release are not the tour's: they read as the user's */
+            if (prev_v >= 0) worst_v_step = fmax(worst_v_step, fabs(v[0] - prev_v));
+            prev_v = v[0];
+            vmin = fmin(vmin, v[0]); vmax = fmax(vmax, v[0]); tmin = fmin(tmin, v[1]); tmax = fmax(tmax, v[1]);
+            pmax = fmax(pmax, v[2]); cmax = fmax(cmax, v[3]); mmax = fmax(mmax, v[7]);
+            /* and what the host would save does not move by a character, however the tour is turning the dials */
+            CHECK(dsp_get_param(vt, "state", st, sizeof st) > 0);
+            if (strcmp(st, st0) != 0) state_moved++;
+        }
+        if (bad_range || bad_follow || state_moved || held)
+            printf("  ghost hands: out of range %d, off the tour %d, saved state moved %d, user knobs moved %d\n", bad_range, bad_follow, state_moved, held);
+        CHECK(samples_checked > 150);
+        CHECK(bad_range == 0);
+        CHECK(bad_follow == 0);                                                        /* the knobs follow the tour on the screen */
+        CHECK(state_moved == 0);                                                       /* nothing to re-save, ever */
+        CHECK(held == 0);
+        /* the screen sees the whole show: vowel across the line (u at 1.0 down to a at 0), Tract down and up, Choir full, drive and Q at the top */
+        if (!(vmax >= 0.99 && vmin <= 0.01 && tmin <= 0.08 && tmax >= 0.92 && cmax >= 0.99 && pmax >= 0.93 && mmax >= 0.99))
+            printf("  ghost hands range: vowel %.2f..%.2f, tract %.2f..%.2f, choir max %.2f, peak max %.2f, mix max %.2f\n", vmin, vmax, tmin, tmax, cmax, pmax, mmax);
+        CHECK(vmax >= 0.99 && vmin <= 0.01);
+        CHECK(tmin <= 0.08 && tmax >= 0.92);
+        CHECK(cmax >= 0.99 && pmax >= 0.93 && mmax >= 0.99);
+        CHECK(worst_v_step < 0.45);                                                    /* no jump between two polls but a glide (half a bar is 1 s: 12 polls) */
+
+        /* Demo Off: the very next read, with no audio block in between, is the user's own value, every one of them */
+        dsp_set_param(vt, "demo", "Off");
+        for (int k = 0; k < 8; k++) CHECK(dsp_get_param(vt, keys[k], b, sizeof b) > 0 && fabs(atof(b) - atof(mine[k])) < 1e-6);
+        CHECK(dsp_get_param(vt, "state", st, sizeof st) > 0 && strcmp(st, st0) == 0);
+        dsp_cleanup(vt);
+    }
+
+    /* A hand on a knob the tour is turning: Demo goes Off, the knob keeps what was written, the rest are the user's again */
+    {
+        static const char *const hands[6] = { "vf_vowel", "vf_tract", "vf_peak", "vf_choir", "vf_mix", "vf_preset" };
+        static const char *const to[6] = { "0.33", "0.9", "0.12", "0.8", "0.2", "2" };
+        for (int h = 0; h < 6; h++) {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "engine", "VoiceFX");
+            for (int k = 0; k < 8; k++) dsp_set_param(vt, keys[k], mine[k]);
+            dsp_set_param(vt, "demo", "On");
+            for (int bn = 0; bn < 6 * VT_SAMPLE_RATE / 128; bn++) { memset(blk, 0, sizeof blk); dsp_process_block_f(vt, blk, 128); }
+            CHECK(dsp_get_param(vt, "demo", b, sizeof b) > 0 && strcmp(b, "On") == 0);
+            CHECK(dsp_set_param(vt, hands[h], to[h]) == 0);
+            CHECK(dsp_get_param(vt, "demo", b, sizeof b) > 0 && strcmp(b, "Off") == 0);       /* it stepped aside, at once */
+            if (h < 5) {
+                CHECK(dsp_get_param(vt, hands[h], b, sizeof b) > 0 && fabs(atof(b) - atof(to[h])) < 1e-6);   /* the player's value */
+                for (int k = 0; k < 8; k++)                                                   /* and the others are the player's own, not the tour's */
+                    if (strcmp(keys[k], hands[h]) != 0) CHECK(dsp_get_param(vt, keys[k], b, sizeof b) > 0 && fabs(atof(b) - atof(mine[k])) < 1e-6);
+            } else {
+                const vt_preset *ps = vt_preset_get(VT_ENGINE_VOICEFX, 2);                    /* the browser: that preset is loaded, the tour is over */
+                for (int k = 0; k < 8; k++) CHECK(dsp_get_param(vt, keys[k], b, sizeof b) > 0 && fabs(atof(b) - (double)ps->v[k]) < 1e-4);
+            }
+            /* the engine is back on the player's knobs: the next blocks no longer move the screen */
+            for (int bn = 0; bn < 40; bn++) { memset(blk, 0, sizeof blk); dsp_process_block_f(vt, blk, 128); }
+            CHECK(dsp_get_param(vt, hands[h < 5 ? h : 1], b, sizeof b) > 0);
+            const double a = atof(b);
+            for (int bn = 0; bn < 400; bn++) { memset(blk, 0, sizeof blk); dsp_process_block_f(vt, blk, 128); }
+            CHECK(dsp_get_param(vt, hands[h < 5 ? h : 1], b, sizeof b) > 0 && fabs(atof(b) - a) < 1e-9);
+            dsp_cleanup(vt);
+        }
+        /* Breath, Attack and Release are not turned by the tour, so touching them is not a hand on it */
+        for (int k = 4; k < 7; k++) {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "engine", "VoiceFX");
+            dsp_set_param(vt, "demo", "On");
+            for (int bn = 0; bn < 3 * VT_SAMPLE_RATE / 128; bn++) { memset(blk, 0, sizeof blk); dsp_process_block_f(vt, blk, 128); }
+            CHECK(dsp_set_param(vt, keys[k], "0.77") == 0);
+            CHECK(dsp_get_param(vt, "demo", b, sizeof b) > 0 && strcmp(b, "On") == 0);
+            CHECK(dsp_get_param(vt, keys[k], b, sizeof b) > 0 && fabs(atof(b) - 0.77) < 1e-6);
+            dsp_cleanup(vt);
+        }
+        /* a restored state is not a hand either (the host sets one while loading): the tour carries on */
+        {
+            vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+            dsp_set_param(vt, "engine", "VoiceFX");
+            dsp_set_param(vt, "demo", "On");
+            for (int bn = 0; bn < 3 * VT_SAMPLE_RATE / 128; bn++) { memset(blk, 0, sizeof blk); dsp_process_block_f(vt, blk, 128); }
+            CHECK(dsp_set_param(vt, "state", "{\"vf_vowel\":0.4,\"vf_tract\":0.7,\"vf_peak\":0.1,\"vf_choir\":0.9,\"vf_mix\":0.6}") == 0);
+            CHECK(dsp_get_param(vt, "demo", b, sizeof b) > 0 && strcmp(b, "On") == 0);
+            dsp_cleanup(vt);
+        }
+    }
+
+    /* The screen only shows the tour in Voice FX: the vocoder's Demo leaves Voice FX's knobs alone, and a switch of engine
+     * ends the animation at once */
+    {
+        vt_t *vt = dsp_init(VT_SAMPLE_RATE);
+        dsp_set_param(vt, "vf_vowel", "0.61");
+        dsp_set_param(vt, "demo", "On");
+        for (int bn = 0; bn < 3 * VT_SAMPLE_RATE / 128; bn++) { memset(blk, 0, sizeof blk); dsp_process_block_f(vt, blk, 128); }
+        CHECK(dsp_get_param(vt, "vf_vowel", b, sizeof b) > 0 && fabs(atof(b) - 0.61) < 1e-6);   /* the vocoder side: untouched */
+        dsp_set_param(vt, "engine", "VoiceFX");
+        for (int bn = 0; bn < 3 * VT_SAMPLE_RATE / 128; bn++) { memset(blk, 0, sizeof blk); dsp_process_block_f(vt, blk, 128); }
+        CHECK(dsp_get_param(vt, "vf_vowel", b, sizeof b) > 0 && fabs(atof(b) - 0.61) > 1e-3);   /* the tour is on the screen now */
+        dsp_set_param(vt, "engine", "Vocoder");
+        CHECK(dsp_get_param(vt, "vf_vowel", b, sizeof b) > 0 && fabs(atof(b) - 0.61) < 1e-6);   /* and gone at once */
+        dsp_cleanup(vt);
     }
 }
 
