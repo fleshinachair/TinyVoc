@@ -32,6 +32,7 @@ chmod 755 "$OUT/$MODULE_ID.so"
 
 cp "$ROOT/module.json"   "$OUT/module.json"
 cp "$ROOT/src/ui/canvas.js" "$OUT/canvas.js"     # OLED widget (custom viz kind)
+cp "$ROOT/src/help.json"    "$OUT/help.json"     # on-device help (the host's Help viewer and the "Module Help" row)
 
 # Sanity: both entry points must be exported. The chain host dlsym()s
 # move_audio_fx_on_midi to decide whether the FX receives any MIDI at all.

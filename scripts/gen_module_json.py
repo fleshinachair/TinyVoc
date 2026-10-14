@@ -136,7 +136,7 @@ def line(o): return json.dumps(o, separators=(", ", ": "))
 out = []
 a = out.append
 a("{")
-for k, v in [("id", "tinyvoice"), ("name", "TinyVoice"), ("abbrev", "TVO"), ("version", "1.0.0"),
+for k, v in [("id", "tinyvoice"), ("name", "TinyVoice"), ("abbrev", "TVO"), ("version", "1.0.1"),
              ("description", "Two engines for the voice: a 13-mode vocoder and voice transformer (Robot, Snap, Chords, Prism, Tape, Nightcall, Scream, Dalek, HardTune, Harmony, Walkie, Morph, Double) and Voice FX, a one-page talking formant filter with presets"),
              ("author", "Mat Taylor"), ("dsp", "tinyvoice.so"), ("api_version", 2), ("component_type", "audio_fx")]:
     a("    %s: %s," % (json.dumps(k), json.dumps(v)))

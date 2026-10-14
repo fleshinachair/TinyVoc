@@ -50,6 +50,7 @@ Talkbox (the old mode 6) was removed on 2026-10-09, and **Nightcall (2026-10-11)
 | `src/ui/canvas.js` | OLED widget (`custom:tinyvoice_scope`) drawn by Schwung's param pages across PITCH knobs 5-7; tested by `tests/canvas_test.mjs` (node) |
 | `tests/test_main.c` | Single-file test runner with allocation counting; `#include`s `tests/voice_tests.inc` (the v1.0 roster, glass, slots, headroom, numeric safety over every mode) just before `main` |
 | `tests/canvas_test.mjs` | Runs `canvas.js` against a mock frame (needle, bars, freeze playhead and recording bar, bounds, junk input) |
+| `src/help.json`, `tests/help_test.mjs` | On-device help for the host's Help viewer (and the "Module Help" row on the Module page): Overview, Setup, Vocoder (Pages, Modes, Pads and Latch, Freeze, Gate, Demo), Voice FX (Knobs, Presets, Audition). Top-level `children` is mandatory (anything else is silently discarded), ASCII only, and a line is drawn unwrapped on a 128 px screen: the test enforces structure, ASCII and <= 21 characters, but the real budget is pixels, so after editing run Schwung's measurement (`tests/host/test_help_content_width.sh` derives glyph widths from `scripts/generate_font.py`; v1.0.1 was measured at a widest x=124 of 127). `build.sh` copies it into the package |
 | `tests/device_smoke.c` | On-device loader harness (dlopen, dlsym, every callback, all 13 modes timed), run by `scripts/smoke_on_device.sh` |
 | `scripts/`, `Makefile` | `build.sh`, `install.sh`, `test.sh`, `smoke_on_device.sh`, `fetch_host_headers.sh`, `gen_module_json.py`; the Makefile (`make test`, `make arm`, `make install`, `make json`) only calls them |
 
@@ -134,7 +135,7 @@ zig cc -target aarch64-linux-gnu.2.35 -O2 -shared -fPIC -fvisibility=hidden \
 ```
 
 - Never add `-ffast-math`: it can pull in `libmvec`, which the device lacks. `build.sh` fails if `libmvec` appears (when `nm` exists).
-- Output is `tinyvoice.so` (see ABI section), mode 755. Package layout is `tinyvoice/{tinyvoice.so,module.json,canvas.js}`, archived as `build/TinyVoice.tar.gz` (the archive is named for the product, the folder inside is the module id: the host needs folder == id). The build is warning-free under `-Wall -Wextra -Werror -pedantic` (it no longer needs `-Wno-unused-parameter`).
+- Output is `tinyvoice.so` (see ABI section), mode 755. Package layout is `tinyvoice/{tinyvoice.so,module.json,canvas.js,help.json}`, archived as `build/TinyVoice.tar.gz` (the archive is named for the product, the folder inside is the module id: the host needs folder == id). The build is warning-free under `-Wall -Wextra -Werror -pedantic` (it no longer needs `-Wno-unused-parameter`).
 - Env overrides: `ZIG`, `TARGET`, `OPT`.
 - Windows: zig installed via winget (`zig.zig`, 0.17.0). New shells see it on PATH; an already-open Git Bash session may need `PATH="$PATH:<winget zig dir>"`. Run the scripts with `bash scripts/...`.
 - Verified: the exported symbol is present, no `libmvec`, and the highest glibc symbol version required is 2.27. On the device the loader resolves only `libm.so.6` and `libc.so.6`. `nm` is not installed on this machine, so `build.sh`'s symbol check is skipped here; check by hand (`strings`/Python) or install binutils.

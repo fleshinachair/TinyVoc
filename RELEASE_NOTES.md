@@ -1,4 +1,4 @@
-# TinyVoice v1.0.0 — Public Preview (Beta)
+# TinyVoice v1.0.1 — Public Preview (Beta)
 
 A vocal processor for Ableton Move, as a [Schwung](https://github.com/charlesvestal/schwung) audio FX module (module id `tinyvoice`, library `tinyvoice.so`, archive `TinyVoice.tar.gz`). Sing or talk into the Move and put the voice through one of **two engines**, chosen on the Mode page:
 
@@ -6,6 +6,11 @@ A vocal processor for Ableton Move, as a [Schwung](https://github.com/charlesves
 - **Voice FX:** a talking filter that sweeps your voice (or a bass line) across vowels, with six presets.
 
 Both engines have a built-in **Demo**, so you can hear them with nothing plugged in.
+
+## New in 1.0.1
+
+- **On-device help.** Open the Help viewer (Global Settings → System → Help) or use the **Module Help** row on the module's page: setup, every Vocoder mode and its five knobs, pads and Latch, Freeze, Gate, Demo, and Voice FX's knobs, presets and Audition page.
+- **Every Vocoder mode keeps its own five knob values** (see below). This was added to the v1.0.0 download after it was first published, so if you installed v1.0.0 early, update.
 
 ## What's in this release
 

@@ -1,0 +1,396 @@
+{
+  "title": "TinyVoice",
+  "children": [
+    {
+      "title": "Overview",
+      "lines": [
+        "A vocal processor",
+        "for your voice.",
+        "",
+        "Two engines:",
+        " Vocoder: 13 voice",
+        " modes",
+        " Voice FX: a vowel",
+        " talking filter",
+        "",
+        "Pick one on the",
+        "Mode page.",
+        "Both have a Demo."
+      ]
+    },
+    {
+      "title": "Setup",
+      "lines": [
+        "Put TinyVoice after",
+        "a source that carries",
+        "your voice, such as",
+        "Line In (the built-in",
+        "mic works through",
+        "it).",
+        "",
+        "Gate Auto levels the",
+        "input and mutes",
+        "silence.",
+        "",
+        "No sound? Check the",
+        "source, Mix and Gate."
+      ]
+    },
+    {
+      "title": "Vocoder",
+      "children": [
+        {
+          "title": "Pages",
+          "lines": [
+            "Main: Mode, five",
+            "knobs named for the",
+            "mode, Mix, Level.",
+            "",
+            "Pitch: Key, Scale,",
+            "Retune, Glide and a",
+            "pitch display.",
+            "",
+            "More: Spread, Tone,",
+            "Freeze, Freeze Len,",
+            "Gate, Latch, Beauty,",
+            "Demo.",
+            "",
+            "Each mode keeps its",
+            "own five knobs."
+          ]
+        },
+        {
+          "title": "Modes",
+          "children": [
+            {
+              "title": "Robot",
+              "lines": [
+                "16-band vocoder.",
+                "Pads play the",
+                "carrier; with none",
+                "held a drone does.",
+                "",
+                "Knobs 2-6:",
+                " 2 Shift",
+                " 3 Noise",
+                " 4 Ensemble",
+                " 5 Beauty",
+                " 6 Glide"
+              ]
+            },
+            {
+              "title": "Snap",
+              "lines": [
+                "Hard auto-tune with",
+                "a bright space-age",
+                "tone. Key and Scale",
+                "pick the notes.",
+                "Beauty 0 = instant.",
+                "",
+                "Knobs 2-6:",
+                " 2 Formant",
+                " 3 Sens",
+                " 4 Vibrato",
+                " 5 Retune",
+                " 6 Beauty"
+              ]
+            },
+            {
+              "title": "Chords",
+              "lines": [
+                "4-voice harmonizer:",
+                "root, 3rd, 5th and",
+                "octave. Rooted on",
+                "the pad you hold,",
+                "or in key.",
+                "",
+                "Knobs 2-6:",
+                " 2 Level",
+                " 3 Voicing",
+                " 4 Humanize",
+                " 5 Retune",
+                " 6 Beauty"
+              ]
+            },
+            {
+              "title": "Prism",
+              "lines": [
+                "4 harmony lines with",
+                "tape warmth, then",
+                "Refract: a glassy",
+                "shifted shimmer.",
+                "",
+                "Knobs 2-6:",
+                " 2 Voicing",
+                " 3 Warmth",
+                " 4 Humanize",
+                " 5 Refract",
+                " 6 Shimmer"
+              ]
+            },
+            {
+              "title": "Tape",
+              "lines": [
+                "Varispeed pitch drop",
+                "with wow, flutter,",
+                "saturation, hiss.",
+                "",
+                "Knobs 2-6:",
+                " 2 Drop",
+                " 3 Flutter",
+                " 4 Saturate",
+                " 5 Tone",
+                " 6 Hiss"
+              ]
+            },
+            {
+              "title": "Nightcall",
+              "lines": [
+                "Talkbox vocoder:",
+                "pulse carrier, low",
+                "cut, throaty cavity.",
+                "Pads or drone carry.",
+                "",
+                "Knobs 2-6:",
+                " 2 Formant",
+                " 3 Breath",
+                " 4 Rasp",
+                " 5 Duty",
+                " 6 Cavity"
+              ]
+            },
+            {
+              "title": "Scream",
+              "lines": [
+                "Prank-call voice:",
+                "a deep drop and a",
+                "big throat. Clean",
+                "until Grit is up.",
+                "Narrow = phone line.",
+                "",
+                "Knobs 2-6:",
+                " 2 Pitch",
+                " 3 Throat",
+                " 4 Grit",
+                " 5 Narrow",
+                " 6 Line"
+              ]
+            },
+            {
+              "title": "Dalek",
+              "lines": [
+                "Frequency shifter,",
+                "30 Hz ring mod and",
+                "a metal comb.",
+                "",
+                "Knobs 2-6:",
+                " 2 Shift",
+                " 3 Ring",
+                " 4 Metal",
+                " 5 Drive",
+                " 6 Width"
+              ]
+            },
+            {
+              "title": "HardTune",
+              "lines": [
+                "Instant pitch snap",
+                "to Key/Scale or the",
+                "pad you hold.",
+                "Amount 0-200 %.",
+                "",
+                "Knobs 2-6:",
+                " 2 Amount",
+                " 3 Formant",
+                " 4 Vibrato",
+                " 5 Glide",
+                " 6 Sens"
+              ]
+            },
+            {
+              "title": "Harmony",
+              "lines": [
+                "3 voices: octave",
+                "down, 5th up, octave",
+                "up; or the shape of",
+                "the chord you hold.",
+                "",
+                "Knobs 2-6:",
+                " 2 Lead",
+                " 3 Stack",
+                " 4 Detune",
+                " 5 Grain",
+                " 6 Micro"
+              ]
+            },
+            {
+              "title": "Walkie",
+              "lines": [
+                "Handset radio: band,",
+                "compressor, clip and",
+                "a squelch burst on",
+                "open and close.",
+                "",
+                "Knobs 2-6:",
+                " 2 Peak",
+                " 3 Drive",
+                " 4 Static",
+                " 5 Squelch",
+                " 6 Band"
+              ]
+            },
+            {
+              "title": "Morph",
+              "lines": [
+                "Formant shift apart",
+                "from pitch, into",
+                "drive.",
+                "",
+                "Knobs 2-6:",
+                " 2 Throat",
+                " 3 Drive",
+                " 4 Wobble",
+                " 5 Retune",
+                " 6 Glide"
+              ]
+            },
+            {
+              "title": "Double",
+              "lines": [
+                "Hard-tuned lead plus",
+                "two detuned, slightly",
+                "late doubles.",
+                "",
+                "Knobs 2-6:",
+                " 2 Detune",
+                " 3 Width",
+                " 4 Drift",
+                " 5 Retune",
+                " 6 Glide"
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Pads and Latch",
+          "lines": [
+            "Only this track's",
+            "pads are heard.",
+            "",
+            "Robot, Nightcall:",
+            " carrier notes",
+            "Chords, Prism:",
+            " the chord root",
+            "Snap, HardTune:",
+            " the target note",
+            "",
+            "Latch (More) keeps",
+            "the chord after you",
+            "let go (Robot,",
+            "Chords, Prism,",
+            "Nightcall, Harmony).",
+            "A press with no pad",
+            "held starts a new",
+            "chord."
+          ]
+        },
+        {
+          "title": "Freeze",
+          "lines": [
+            "A 16 s punch-in",
+            "looper (More).",
+            "",
+            "Rec: record a take",
+            "Loop: play it",
+            "Off: live; take kept",
+            "",
+            "Freeze Len: 1, 2, 4",
+            "bars or Free. In bar",
+            "mode Rec waits for",
+            "the next downbeat,",
+            "then stops itself.",
+            "",
+            "Takes under 50 ms",
+            "are ignored."
+          ]
+        },
+        {
+          "title": "Gate",
+          "lines": [
+            "Gate (More):",
+            "",
+            "Auto: levels the",
+            "input and gates",
+            "silence.",
+            "",
+            "-60 to 0 dB: a fixed",
+            "threshold."
+          ]
+        },
+        {
+          "title": "Demo",
+          "lines": [
+            "Demo (More): a sung",
+            "phrase tours all 13",
+            "modes, 4 bars each,",
+            "at the Move's tempo.",
+            "",
+            "Turn Mode to hold",
+            "on one mode."
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Voice FX",
+      "children": [
+        {
+          "title": "Knobs",
+          "lines": [
+            "1 Vowel: A E I O U",
+            "2 Tract: throat size",
+            "3 Peak: sharpness",
+            "4 Choir: L/R detune",
+            " and chorus",
+            "5 Breath: noise",
+            " and air",
+            "6 Attack: onset",
+            " swell",
+            "7 Release: tail",
+            "8 Mix/Drv: wet/dry,",
+            " then drive"
+          ]
+        },
+        {
+          "title": "Presets",
+          "lines": [
+            "Pick on the Presets",
+            "page:",
+            "",
+            "Yeah Boy",
+            "Robo Talk",
+            "Monster Throat",
+            "Funky Talkbox",
+            "Alien Choir",
+            "Vowel Morph Solo"
+          ]
+        },
+        {
+          "title": "Audition",
+          "lines": [
+            "Demo plays an 8-bar",
+            "funk phrase. Vowel,",
+            "Tract, Peak, Choir",
+            "and Mix/Drv move by",
+            "themselves.",
+            "",
+            "Touch one, or pick a",
+            "preset, and Demo",
+            "stops. Pick a preset",
+            "first."
+          ]
+        }
+      ]
+    }
+  ]
+}

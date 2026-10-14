@@ -31,6 +31,7 @@ cd "$ROOT"      # tests read module.json from the repo root
 # The OLED widget (src/ui/canvas.js) runs in Schwung's JS host; test it with node if present.
 if command -v node >/dev/null; then
     node "$ROOT/tests/canvas_test.mjs"
+    node "$ROOT/tests/help_test.mjs"
 else
-    echo "node not found: skipping tests/canvas_test.mjs"
+    echo "node not found: skipping tests/canvas_test.mjs and tests/help_test.mjs"
 fi

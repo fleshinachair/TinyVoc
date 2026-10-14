@@ -5,7 +5,7 @@
 - **Vocoder** is the deep one: sing into the Move, lean on the pads, and turn your voice into a hard-tuned robot, a talkbox, a one-finger choir, a Dalek, a walkie-talkie or a frozen drone. Thirteen modes, three pages of controls.
 - **Voice FX** is the quick one: a talking filter. Your voice (or a bass line) through a bank of vowel formants, with eight knobs on a single page, six ready-made presets, and a built-in funk groove so you can audition everything without routing a thing.
 
-TinyVoice is an audio FX module for [Schwung](https://github.com/charlesvestal/schwung). **v1.0.0 is a public preview (beta)**: it runs well on a Move, but it was tuned on synthetic voices, a built-in groove and a built-in mic, not across lots of singers. See [Known limitations](#known-limitations).
+TinyVoice is an audio FX module for [Schwung](https://github.com/charlesvestal/schwung). **v1.0.1 is a public preview (beta)**: it runs well on a Move, but it was tuned on synthetic voices, a built-in groove and a built-in mic, not across lots of singers. See [Known limitations](#known-limitations).
 
 - [Two engines, one switch](#two-engines-one-switch)
 - [Vocoder](#vocoder): the modes · the contextual knobs
