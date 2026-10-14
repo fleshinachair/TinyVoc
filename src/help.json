@@ -11,7 +11,8 @@
         " Vocoder: 13 voice",
         " modes",
         " Voice FX: a vowel",
-        " talking filter",
+        " talking filter for",
+        " a synth",
         "",
         "Pick one on the",
         "Mode page.",
@@ -20,20 +21,53 @@
     },
     {
       "title": "Setup",
-      "lines": [
-        "Put TinyVoice after",
-        "a source that carries",
-        "your voice, such as",
-        "Line In (the built-in",
-        "mic works through",
-        "it).",
-        "",
-        "Gate Auto levels the",
-        "input and mutes",
-        "silence.",
-        "",
-        "No sound? Check the",
-        "source, Mix and Gate."
+      "children": [
+        {
+          "title": "Vocoder setup",
+          "lines": [
+            "Source: your voice.",
+            "",
+            "Put TinyVoice after",
+            "Line In (the built-in",
+            "mic works through",
+            "it) and sing or",
+            "talk.",
+            "",
+            "Pads play the",
+            "carrier in Robot and",
+            "Nightcall.",
+            "",
+            "Gate Auto levels the",
+            "input and mutes",
+            "silence.",
+            "",
+            "No sound? Check the",
+            "source, Mix and Gate."
+          ]
+        },
+        {
+          "title": "Voice FX setup",
+          "lines": [
+            "Source: a synth.",
+            "",
+            "Put TinyVoice after a",
+            "synth (a bass, pad or",
+            "stab patch) and play.",
+            "The vowels shape the",
+            "synth's sound.",
+            "",
+            "Your voice works too,",
+            "through Line In.",
+            "",
+            "Notes below 120 Hz",
+            "are thinned, so play",
+            "bass patches a bit",
+            "higher.",
+            "",
+            "Demo plays a built-in",
+            "funk phrase instead."
+          ]
+        }
       ]
     },
     {
